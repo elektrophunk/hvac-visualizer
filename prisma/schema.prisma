@@ -1,0 +1,197 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+model Organization {
+  id         String    @id @default(uuid())
+  name       String
+  slug       String    @unique
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  users    User[]
+  projects Project[]
+}
+
+model User {
+  id           String        @id @default(uuid())
+  supabase_uid String        @unique
+  email        String        @unique
+  display_name String?
+  org_id       String?
+  org          Organization? @relation(fields: [org_id], references: [id])
+  created_at   DateTime      @default(now())
+  updated_at   DateTime      @updatedAt
+  deleted_at   DateTime?
+
+  jobs     RenderJob[]
+  renders  Render[]
+  projects Project[]
+
+  @@index([supabase_uid])
+  @@index([org_id])
+}
+
+model Project {
+  id         String        @id @default(uuid())
+  name       String
+  org_id     String?
+  org        Organization? @relation(fields: [org_id], references: [id])
+  owner_id   String
+  owner      User          @relation(fields: [owner_id], references: [id])
+  created_at DateTime      @default(now())
+  updated_at DateTime      @updatedAt
+
+  jobs RenderJob[]
+}
+
+// ─── Equipment Catalog ────────────────────────────────────────────────────────
+
+enum EquipmentCategory {
+  mini_split_head
+  mini_split_condenser
+  central_air_handler
+  furnace
+  heat_pump_condenser
+  boiler
+  ductless_cassette
+  ventilator
+  other
+}
+
+model Equipment {
+  id                  String            @id @default(uuid())
+  name                String
+  slug                String            @unique
+  category            EquipmentCategory
+  manufacturer        String
+  model_number        String?
+  btu_rating          Int?
+  asset_url           String
+  asset_version       String
+  thumbnail_url       String?
+  natural_width_px    Int
+  natural_height_px   Int
+  // { "scale_hint": 0.18, "typical_height_fraction": 0.09,
+  //   "color_temp_k": 6500, "shear_hint": "neutral" }
+  metadata            Json              @default("{}")
+  license_source      String
+  license_allowed_use String
+  license_expiry      DateTime?
+  is_active           Boolean           @default(true)
+  created_at          DateTime          @default(now())
+  updated_at          DateTime          @updatedAt
+
+  jobs RenderJob[]
+
+  @@index([category, is_active])
+  @@index([manufacturer])
+}
+
+// ─── Render Jobs ──────────────────────────────────────────────────────────────
+
+enum JobStatus {
+  queued
+  processing
+  completed
+  failed
+}
+
+enum FailureReason {
+  CLAUDE_API_ERROR
+  CLAUDE_JSON_INVALID
+  COMPOSITE_ERROR
+  STORAGE_ERROR
+  TIMEOUT
+  UNKNOWN
+}
+
+model RenderJob {
+  id              String  @id @default(uuid())
+  idempotency_key String  @unique
+
+  user_id    String
+  user       User    @relation(fields: [user_id], references: [id])
+  project_id String?
+  project    Project? @relation(fields: [project_id], references: [id])
+
+  equipment_id            String
+  equipment               Equipment @relation(fields: [equipment_id], references: [id])
+  equipment_asset_version String
+
+  source_image_url      String
+  source_image_width_px  Int?
+  source_image_height_px Int?
+
+  status            JobStatus     @default(queued)
+  attempt_count     Int           @default(0)
+  max_attempts      Int           @default(3)
+  last_failure_reason FailureReason?
+  failure_detail    String?
+  poison_message    Boolean       @default(false)
+
+  queue_latency_ms     Int?
+  vision_latency_ms    Int?
+  composite_latency_ms Int?
+  total_latency_ms     Int?
+
+  input_tokens  Int?
+  output_tokens Int?
+  cost_usd      Decimal?  @db.Decimal(10, 6)
+
+  placement_viable Boolean?
+
+  result_url        String?
+  analysis_json_url String?
+
+  queued_at    DateTime  @default(now())
+  started_at   DateTime?
+  completed_at DateTime?
+  failed_at    DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  render Render?
+
+  @@index([user_id, status])
+  @@index([idempotency_key])
+  @@index([status, queued_at])
+  @@index([user_id, created_at(sort: Desc)])
+}
+
+// ─── Render Output ────────────────────────────────────────────────────────────
+
+model Render {
+  id      String    @id @default(uuid())
+  job_id  String    @unique
+  job     RenderJob @relation(fields: [job_id], references: [id])
+  user_id String
+  user    User      @relation(fields: [user_id], references: [id])
+
+  source_image_url  String
+  result_image_url  String
+  analysis_json_url String?
+
+  share_token          String?  @unique
+  share_expires_at     DateTime?
+  share_accessed_count Int      @default(0)
+
+  realism_rating    Int?
+  usefulness_rating Int?
+  feedback_note     String?
+  quote_accepted    Boolean?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([user_id, created_at(sort: Desc)])
+  @@index([share_token])
+}

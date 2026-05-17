@@ -1,0 +1,17 @@
+{
+  "functions": {
+    "app/api/webhooks/queue/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/watchdog/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/cron/cost-report/route.ts": {
+      "maxDuration": 30
+    }
+  },
+  "crons": [
+    { "path": "/api/cron/watchdog", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/cost-report", "schedule": "0 9 * * 1" }
+  ]
+}
