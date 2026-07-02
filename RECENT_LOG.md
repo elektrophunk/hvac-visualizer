@@ -2,7 +2,8 @@
 
 ## Current Sprint Status (as of 2026-07-01)
 - Focus: MVP-complete + mobile-ready + Vercel deploy prep.
-- Current priority: **BLOCKER — Supabase project `hklnkmykwjiywqswjqmp` no longer exists** (DNS dead, DB unreachable). Create/restore a Supabase project, update `.env.local` + Vercel env vars, then run `npx prisma db push` + `npm run db:seed`.
+- Supabase blocker RESOLVED: project was paused (not deleted); after restore the pooler re-registered within minutes. `prisma db push` confirmed schema in sync; `db:seed` upserted 9 equipment rows; local smoke test passed (public routes 200, protected routes 307→login, bogus share token 404).
+- Current priority: Vercel deploy (env vars, Blob store, Supabase redirect URLs) → end-to-end phone test.
 
 ## Recent Major Changes
 
