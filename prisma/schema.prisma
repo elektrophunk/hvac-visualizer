@@ -72,20 +72,12 @@ model Equipment {
   name                String
   slug                String            @unique
   category            EquipmentCategory
-  manufacturer        String
+  manufacturer        String?
   model_number        String?
   btu_rating          Int?
-  asset_url           String
-  asset_version       String
   thumbnail_url       String?
-  natural_width_px    Int
-  natural_height_px   Int
-  // { "scale_hint": 0.18, "typical_height_fraction": 0.09,
-  //   "color_temp_k": 6500, "shear_hint": "neutral" }
+  prompt_description  String            @default("")
   metadata            Json              @default("{}")
-  license_source      String
-  license_allowed_use String
-  license_expiry      DateTime?
   is_active           Boolean           @default(true)
   created_at          DateTime          @default(now())
   updated_at          DateTime          @updatedAt
@@ -93,7 +85,6 @@ model Equipment {
   jobs RenderJob[]
 
   @@index([category, is_active])
-  @@index([manufacturer])
 }
 
 // ─── Render Jobs ──────────────────────────────────────────────────────────────
@@ -101,6 +92,7 @@ model Equipment {
 enum JobStatus {
   queued
   processing
+  awaiting_fal_result
   completed
   failed
 }
@@ -108,44 +100,49 @@ enum JobStatus {
 enum FailureReason {
   CLAUDE_API_ERROR
   CLAUDE_JSON_INVALID
-  COMPOSITE_ERROR
+  FAL_API_ERROR
   STORAGE_ERROR
   TIMEOUT
   UNKNOWN
 }
 
 model RenderJob {
-  id              String  @id @default(uuid())
-  idempotency_key String  @unique
+  id              String   @id @default(uuid())
+  idempotency_key String   @unique
 
   user_id    String
-  user       User    @relation(fields: [user_id], references: [id])
+  user       User     @relation(fields: [user_id], references: [id])
   project_id String?
   project    Project? @relation(fields: [project_id], references: [id])
 
-  equipment_id            String
-  equipment               Equipment @relation(fields: [equipment_id], references: [id])
-  equipment_asset_version String
+  equipment_id String?
+  equipment    Equipment? @relation(fields: [equipment_id], references: [id])
 
-  source_image_url      String
+  user_prompt    String
+  force_generate Boolean  @default(false)
+
+  source_image_url       String
   source_image_width_px  Int?
   source_image_height_px Int?
 
-  status            JobStatus     @default(queued)
-  attempt_count     Int           @default(0)
-  max_attempts      Int           @default(3)
+  status              JobStatus      @default(queued)
+  attempt_count       Int            @default(0)
+  max_attempts        Int            @default(3)
   last_failure_reason FailureReason?
-  failure_detail    String?
-  poison_message    Boolean       @default(false)
+  failure_detail      String?
+  poison_message      Boolean        @default(false)
 
-  queue_latency_ms     Int?
-  vision_latency_ms    Int?
-  composite_latency_ms Int?
-  total_latency_ms     Int?
+  fal_request_id String?
+
+  queue_latency_ms      Int?
+  vision_latency_ms     Int?
+  generation_latency_ms Int?
+  total_latency_ms      Int?
 
   input_tokens  Int?
   output_tokens Int?
   cost_usd      Decimal?  @db.Decimal(10, 6)
+  fal_cost_usd  Decimal?  @db.Decimal(10, 6)
 
   placement_viable Boolean?
 
@@ -180,9 +177,9 @@ model Render {
   result_image_url  String
   analysis_json_url String?
 
-  share_token          String?  @unique
+  share_token          String?   @unique
   share_expires_at     DateTime?
-  share_accessed_count Int      @default(0)
+  share_accessed_count Int       @default(0)
 
   realism_rating    Int?
   usefulness_rating Int?

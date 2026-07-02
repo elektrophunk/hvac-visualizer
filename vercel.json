@@ -1,6 +1,9 @@
 {
   "functions": {
     "app/api/webhooks/queue/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/jobs/[id]/route.ts": {
       "maxDuration": 60
     },
     "app/api/cron/watchdog/route.ts": {

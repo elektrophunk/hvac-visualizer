@@ -20,6 +20,7 @@ export default async function RenderPage({
           placement_viable: true,
           cost_usd: true,
           total_latency_ms: true,
+          user_prompt: true,
           equipment: { select: { name: true, manufacturer: true } },
         },
       },

@@ -39,7 +39,7 @@ export function analysisJsonPath(jobId: string) {
 }
 
 export function renderResultPath(jobId: string) {
-  return `renders/${jobId}/final.png`;
+  return `renders/${jobId}/final.jpg`;
 }
 
 export function equipmentAssetPath(equipmentId: string, version: string) {

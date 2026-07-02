@@ -7,11 +7,13 @@ export interface JobMetrics {
   attempt_count: number;
   queue_latency_ms?: number;
   vision_latency_ms?: number;
-  composite_latency_ms?: number;
+  generation_latency_ms?: number;
   total_latency_ms?: number;
   input_tokens?: number;
   output_tokens?: number;
   cost_usd?: number;
+  fal_cost_usd?: number;
+  model_endpoint?: string;
   failure_reason?: FailureReason;
   equipment_id?: string;
 }
@@ -30,7 +32,6 @@ export function logJobEvent(metrics: JobMetrics) {
   };
 
   if (process.env.NODE_ENV === "production" && process.env.AXIOM_API_TOKEN) {
-    // Fire-and-forget to Axiom — don't await so it never blocks a request
     fetch(`https://api.axiom.co/v1/datasets/${process.env.AXIOM_DATASET}/ingest`, {
       method: "POST",
       headers: {
@@ -38,9 +39,7 @@ export function logJobEvent(metrics: JobMetrics) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify([entry]),
-    }).catch(() => {
-      // Observability must never throw
-    });
+    }).catch(() => {});
   } else {
     console.log("[job-event]", JSON.stringify(entry));
   }

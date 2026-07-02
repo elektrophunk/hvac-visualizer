@@ -3,15 +3,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Download, Share2, Star } from "lucide-react";
+import { Download, Share2, Star, RefreshCw } from "lucide-react";
+import Link from "next/link";
 
 interface RenderData {
   id: string;
@@ -19,7 +12,8 @@ interface RenderData {
   source_image_url: string;
   job: {
     placement_viable: boolean | null;
-    equipment: { name: string; manufacturer: string } | null;
+    user_prompt: string;
+    equipment: { name: string; manufacturer: string | null } | null;
   };
   realism_rating: number | null;
   usefulness_rating: number | null;
@@ -30,6 +24,9 @@ interface Props {
 }
 
 export default function RenderView({ render }: Props) {
+  // Legacy not-viable rows were created with an empty result — show the source
+  // photo and hide actions that need a real result image.
+  const hasResult = !!render.result_image_url;
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const [realismRating, setRealismRating] = useState(render.realism_rating);
@@ -80,32 +77,50 @@ export default function RenderView({ render }: Props) {
             </p>
           )}
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleShare}
-          >
-            <Share2 className="w-4 h-4 mr-1.5" />
-            {shareCopied ? "Copied!" : "Share"}
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          {hasResult && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleShare}
+              className="flex-1 sm:flex-initial"
+            >
+              <Share2 className="w-4 h-4 mr-1.5" />
+              {shareCopied ? "Copied!" : "Share"}
+            </Button>
+          )}
+          <Button asChild variant="outline" size="sm" className="flex-1 sm:flex-initial">
+            <Link
+              href={`/new?source=${encodeURIComponent(render.source_image_url)}&prompt=${encodeURIComponent(render.job.user_prompt)}&quality=final`}
+            >
+              <RefreshCw className="w-4 h-4 mr-1.5" />
+              Re-render
+            </Link>
           </Button>
-          <Button asChild size="sm">
-            <a href={`/api/renders/${render.id}/export`} download>
-              <Download className="w-4 h-4 mr-1.5" />
-              Download
-            </a>
-          </Button>
+          {hasResult && (
+            <Button asChild size="sm" className="flex-1 sm:flex-initial">
+              <a href={`/api/renders/${render.id}/export`} download>
+                <Download className="w-4 h-4 mr-1.5" />
+                Download
+              </a>
+            </Button>
+          )}
         </div>
       </div>
 
       <Card>
         <CardContent className="p-0 overflow-hidden rounded-lg">
           <img
-            src={render.result_image_url}
-            alt="Rendered HVAC installation"
+            src={hasResult ? render.result_image_url : render.source_image_url}
+            alt={hasResult ? "Rendered HVAC installation" : "Original site photo"}
             className="w-full object-contain bg-slate-100"
           />
-          {render.job.placement_viable === false && (
+          {!hasResult && (
+            <p className="px-4 py-2 text-xs text-amber-700 bg-amber-50 border-t border-amber-100">
+              No render was generated for this request — Claude found no suitable placement. Showing your original photo.
+            </p>
+          )}
+          {hasResult && render.job.placement_viable === false && (
             <p className="px-4 py-2 text-xs text-amber-700 bg-amber-50 border-t border-amber-100">
               No optimal placement found — this render shows a suggested fallback position. Review with your customer.
             </p>
@@ -156,7 +171,8 @@ function RatingRow({
         <button
           key={n}
           onClick={() => onChange(n)}
-          className="focus:outline-none"
+          aria-label={`${label} ${n} of 5`}
+          className="p-2.5 -m-1.5 focus:outline-none"
         >
           <Star
             className={`w-5 h-5 transition-colors ${

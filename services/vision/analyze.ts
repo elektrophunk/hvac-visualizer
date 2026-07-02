@@ -18,9 +18,14 @@ interface AnalysisOutput {
 async function callClaude(
   imageBase64: string,
   mediaType: "image/jpeg" | "image/png" | "image/webp",
-  equipmentSpec: string,
+  userPrompt: string,
+  equipmentDescription: string | null,
   attempt: number
 ): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+  const userText = attempt > 1
+    ? `Your previous response was not valid JSON. Output only raw JSON as specified.\n\n${buildUserMessage(userPrompt, equipmentDescription)}`
+    : buildUserMessage(userPrompt, equipmentDescription);
+
   const userContent: Anthropic.MessageParam["content"] = [
     {
       type: "image",
@@ -30,18 +35,12 @@ async function callClaude(
         data: imageBase64,
       },
     },
-    {
-      type: "text",
-      text:
-        attempt > 1
-          ? `Your previous response was not valid JSON. Output only raw JSON as specified.\n\n${buildUserMessage(equipmentSpec)}`
-          : buildUserMessage(equipmentSpec),
-    },
+    { type: "text", text: userText },
   ];
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 1024,
+    max_tokens: 800,
     system: VISION_SYSTEM_PROMPT,
     messages: [{ role: "user", content: userContent }],
   });
@@ -57,7 +56,6 @@ async function callClaude(
 }
 
 function parseJson(text: string): unknown {
-  // Strip any accidental markdown fences
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
   return JSON.parse(cleaned);
 }
@@ -65,7 +63,8 @@ function parseJson(text: string): unknown {
 export async function analyzeImage(
   imageBuffer: Buffer,
   mimeType: string,
-  equipmentSpec: string
+  userPrompt: string,
+  equipmentDescription: string | null
 ): Promise<AnalysisOutput> {
   const start = Date.now();
   const mediaType = mimeType.startsWith("image/png")
@@ -85,22 +84,21 @@ export async function analyzeImage(
       const { text, inputTokens, outputTokens } = await callClaude(
         imageBase64,
         mediaType,
-        equipmentSpec,
+        userPrompt,
+        equipmentDescription,
         attempt
       );
       totalInputTokens += inputTokens;
       totalOutputTokens += outputTokens;
 
-      // Tier 1: JSON parse
       let parsed: unknown;
       try {
         parsed = parseJson(text);
       } catch (e) {
         lastError = new Error(`JSON parse failed: ${(e as Error).message}`);
-        continue; // retry
+        continue;
       }
 
-      // Tier 2+3: Zod validation with coercion
       const result = validateAnalysis(parsed);
 
       return {

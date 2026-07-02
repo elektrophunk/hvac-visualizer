@@ -10,29 +10,35 @@ import Link from "next/link";
 
 interface Props {
   jobId: string;
+  sourceImageUrl?: string;
+  userPrompt?: string;
+  equipmentId?: string | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "Waiting in queue…",
-  processing: "Analyzing your photo and compositing the render…",
+  processing: "Analyzing your photo…",
+  awaiting_fal_result: "Generating image with AI…",
   completed: "Render complete!",
   failed: "Render failed",
 };
 
 const FAILURE_MESSAGES: Record<string, string> = {
-  CLAUDE_API_ERROR: "Our AI service had a temporary issue. Please try again.",
+  CLAUDE_API_ERROR: "Our AI analysis service had a temporary issue. Please try again.",
   CLAUDE_JSON_INVALID: "The analysis returned unexpected data. Please try again.",
-  COMPOSITE_ERROR: "Image compositing failed. Please try again with a different photo.",
+  FAL_API_ERROR: "The AI image generation service had a temporary issue. Please try again.",
   STORAGE_ERROR: "Storage error. Please try again.",
   TIMEOUT: "The render timed out. Please try again.",
   UNKNOWN: "An unexpected error occurred. Please try again.",
 };
 
-export default function JobStatusPoller({ jobId }: Props) {
+export default function JobStatusPoller({ jobId, sourceImageUrl, userPrompt, equipmentId }: Props) {
   const router = useRouter();
   const [status, setStatus] = useState<JobStatusResponse | null>(null);
   const [timedOut, setTimedOut] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [generatingForceJob, setGeneratingForceJob] = useState(false);
+  const [forceJobError, setForceJobError] = useState<string | null>(null);
 
   const poll = useCallback(async () => {
     const res = await fetch(`/api/jobs/${jobId}`);
@@ -41,18 +47,16 @@ export default function JobStatusPoller({ jobId }: Props) {
     setStatus(data);
 
     if (data.status === "completed" && data.result_url) {
-      // Redirect to the render view
       const renderId = await getRenderId(jobId);
-      if (renderId) {
-        router.push(`/renders/${renderId}`);
-      }
+      if (renderId) router.push(`/renders/${renderId}`);
     }
   }, [jobId, router]);
 
   useEffect(() => {
-    poll();
+    // Deferred so the first poll's setState isn't synchronous in the effect body
+    const initialPoll = setTimeout(poll, 0);
     const startTime = Date.now();
-    const TIMEOUT_MS = 120_000;
+    const TIMEOUT_MS = 300_000; // 5 min — covers up to 10 polls at 30s
 
     const interval = setInterval(() => {
       const nowElapsed = Date.now() - startTime;
@@ -70,33 +74,110 @@ export default function JobStatusPoller({ jobId }: Props) {
       }
 
       poll();
-    }, 2_000);
+    }, 5_000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialPoll);
+      clearInterval(interval);
+    };
   }, [poll, status?.status]);
+
+  async function handleGenerateAnyway() {
+    if (!sourceImageUrl || !userPrompt) return;
+    setGeneratingForceJob(true);
+    setForceJobError(null);
+    const idempotencyKey = crypto.randomUUID();
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({
+          source_image_url: sourceImageUrl,
+          user_prompt: userPrompt,
+          equipment_id: equipmentId ?? undefined,
+          force_generate: true,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setForceJobError(data.error ?? "Failed to start the render. Please try again.");
+        return;
+      }
+      const { jobId: newJobId } = await res.json();
+      router.push(`/jobs/${newJobId}`);
+    } catch {
+      setForceJobError("Network error. Please try again.");
+    } finally {
+      setGeneratingForceJob(false);
+    }
+  }
+
+  // Not-viable state: completed but no result_url
+  const isNotViable =
+    status?.status === "completed" && !status?.result_url && status?.placement_viable === false;
 
   const progress =
     status?.status === "processing"
-      ? Math.min(90, (elapsed / 30_000) * 100)
+      ? Math.min(30, (elapsed / 15_000) * 30)
+      : status?.status === "awaiting_fal_result"
+      ? 30 + Math.min(60, ((elapsed - 15_000) / 60_000) * 60)
       : status?.status === "completed"
       ? 100
       : status?.status === "queued"
-      ? 10
+      ? 5
       : 0;
 
   if (timedOut && status?.status !== "completed") {
     return (
       <Card className="max-w-lg mx-auto mt-16">
         <CardContent className="py-10 text-center space-y-4">
-          <p className="text-slate-700 font-medium">
-            This is taking longer than expected.
-          </p>
-          <p className="text-sm text-slate-500">
-            Your render is still in the queue. Check back in a few moments.
-          </p>
+          <p className="text-slate-700 font-medium">This is taking longer than expected.</p>
+          <p className="text-sm text-slate-500">Your render is still processing. Check back in a few minutes.</p>
           <Button asChild variant="outline">
             <Link href="/dashboard">Back to history</Link>
           </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isNotViable) {
+    return (
+      <Card className="max-w-lg mx-auto mt-6 sm:mt-16">
+        <CardContent className="py-10 space-y-6">
+          <div className="space-y-2">
+            <p className="text-lg font-semibold text-slate-900">Placement not recommended</p>
+            <p className="text-sm text-slate-600">
+              Claude analyzed the photo and couldn&apos;t find a suitable placement for your request.
+              {status?.viability_reason ? ` Reason: ${status.viability_reason}` : ""}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Try rephrasing:</p>
+            <ul className="text-sm text-slate-600 space-y-1 list-disc pl-4">
+              <li>Describe a specific wall or surface visible in the photo</li>
+              <li>Try &quot;Add a mini-split to the largest clear wall&quot;</li>
+              <li>Mention a landmark: &quot;…on the wall to the left of the window&quot;</li>
+            </ul>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button asChild variant="outline" className="w-full sm:w-auto">
+              <Link href="/new">Start over</Link>
+            </Button>
+            <Button
+              onClick={handleGenerateAnyway}
+              disabled={generatingForceJob}
+              variant="secondary"
+              className="w-full sm:w-auto"
+            >
+              {generatingForceJob ? "Generating…" : "Generate anyway"}
+            </Button>
+          </div>
+          {forceJobError && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{forceJobError}</p>
+          )}
         </CardContent>
       </Card>
     );
@@ -107,8 +188,13 @@ export default function JobStatusPoller({ jobId }: Props) {
       <CardContent className="py-10 space-y-6">
         <div className="text-center space-y-2">
           <p className="text-lg font-semibold text-slate-900">
-            {status ? STATUS_LABEL[status.status] : "Loading…"}
+            {status ? STATUS_LABEL[status.status] ?? "Processing…" : "Loading…"}
           </p>
+          {status?.status === "awaiting_fal_result" && (
+            <p className="text-sm text-slate-500">
+              AI generation takes 30–90 seconds. Hang tight.
+            </p>
+          )}
           {status?.status === "failed" && (
             <p className="text-sm text-slate-600">
               {FAILURE_MESSAGES[status.failure_reason ?? "UNKNOWN"]}
@@ -131,9 +217,9 @@ export default function JobStatusPoller({ jobId }: Props) {
           </div>
         )}
 
-        {(status?.status === "queued" || status?.status === "processing") && (
+        {(status?.status === "queued" || status?.status === "processing" || status?.status === "awaiting_fal_result") && (
           <p className="text-xs text-center text-slate-400">
-            Estimated wait: ~{Math.ceil((status.estimated_wait_ms ?? 12000) / 1000)}s
+            Estimated wait: ~{Math.ceil((status.estimated_wait_ms ?? 45000) / 1000)}s
           </p>
         )}
       </CardContent>
@@ -142,11 +228,6 @@ export default function JobStatusPoller({ jobId }: Props) {
 }
 
 async function getRenderId(jobId: string): Promise<string | null> {
-  const res = await fetch(`/api/jobs/${jobId}`);
-  if (!res.ok) return null;
-  const job = await res.json();
-  if (job.status !== "completed") return null;
-  // Fetch render ID from the job's render relation via a separate lookup
   const renderRes = await fetch(`/api/renders/by-job/${jobId}`);
   if (!renderRes.ok) return null;
   const render = await renderRes.json();

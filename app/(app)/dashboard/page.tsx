@@ -1,7 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -60,16 +59,16 @@ export default async function DashboardPage() {
               <Card className="hover:shadow-md transition-shadow cursor-pointer">
                 <CardContent className="py-4 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    {job.equipment.thumbnail_url && (
+                    {job.equipment?.thumbnail_url && (
                       <img
                         src={job.equipment.thumbnail_url}
-                        alt={job.equipment.name}
+                        alt={job.equipment.name ?? "Equipment"}
                         className="w-10 h-10 object-contain rounded bg-slate-100 flex-shrink-0"
                       />
                     )}
                     <div className="min-w-0">
                       <p className="font-medium text-slate-900 truncate">
-                        {job.equipment.name}
+                        {job.equipment?.name ?? "Custom render"}
                       </p>
                       <p className="text-xs text-slate-500">
                         {new Date(job.created_at).toLocaleDateString("en-US", {
