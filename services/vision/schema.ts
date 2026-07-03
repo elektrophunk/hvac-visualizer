@@ -10,11 +10,14 @@ export const AnalysisResultSchema = z.object({
   request_viable: z.boolean(),
   viability_reason: z.string().min(1).max(400),
   enriched_prompt: z.string().min(10).max(1000),
-  schema_version: z.literal("2.0"),
+  content_flag: z.enum(["ok", "nsfw_or_abusive", "off_domain"]),
+  flag_reason: z.string().max(300).optional(),
+  schema_version: z.literal("2.1"),
 });
 
 const ALLOWED_KEYS = new Set([
-  "scene", "request_viable", "viability_reason", "enriched_prompt", "schema_version",
+  "scene", "request_viable", "viability_reason", "enriched_prompt",
+  "content_flag", "flag_reason", "schema_version",
 ]);
 
 export function validateAnalysis(raw: unknown): AnalysisResult {

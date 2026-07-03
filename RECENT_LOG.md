@@ -1,11 +1,78 @@
 # RECENT_LOG
 
-## Current Sprint Status (as of 2026-07-01)
-- Focus: MVP-complete + mobile-ready + Vercel deploy prep.
-- Supabase blocker RESOLVED: project was paused (not deleted); after restore the pooler re-registered within minutes. `prisma db push` confirmed schema in sync; `db:seed` upserted 9 equipment rows; local smoke test passed (public routes 200, protected routes 307→login, bogus share token 404).
-- Current priority: Vercel deploy (env vars, Blob store, Supabase redirect URLs) → end-to-end phone test.
+## Current Sprint Status (as of 2026-07-02)
+- **All three FABLE builds code complete** (Passes 17–19): Build 1 abuse/billing/branding, Build 2 quoting/PDF/watermark, Build 3 growth (slider, Good/Better/Best, leads, email, projects, analytics).
+- Next: manual account setup — Stripe (test mode, prices $29/$49), Cloudflare Turnstile, Upstash Redis, **Resend** (verified sender + `RESEND_API_KEY`/`EMAIL_FROM`), Supabase "Confirm email" ON, all env vars into Vercel → full E2E (billing → render → proposal w/ tiers → customer accept → lead → emails) → deploy.
+- Schema strategy LOCKED: `prisma db push` (no tracked migrations).
+- Env note: the Claude Code sandbox blocks Turbopack/PostCSS child-process spawn (0xc0000142) — run `npm run dev` outside the sandbox; `npm run build` is unaffected.
 
 ## Recent Major Changes
+
+### 2026-07-02 - Pass 19
+**Summary**
+- FABLE_BUILD_3 complete (approved plan: `~/.claude/plans/nested-questing-moler.md`). Locked decisions: `QuoteOption` table for Good/Better/Best; analytics as stat cards on `/dashboard`; dedicated `/leads` page; proposal-viewed email on **first view only**.
+- **Before/after slider**: `components/BeforeAfterSlider.tsx` (pointer-events drag + keyboard, touch-friendly, clip-path) replaces the static side-by-side as the hero on `/renders/[id]`, `/share/[token]`, and `/proposal/[token]`.
+- **Good/Better/Best**: `QuoteOption` model (cascade on quote delete; own line items + totals computed with quote-level `tax_rate`; `sort_order`) + `Quote.accepted_option_id`. Options are additive — 0 options = single estimate, 1–4 tiers otherwise; quote totals mirror tier 1 until acceptance copies the chosen tier's totals. `POST/PATCH /api/quotes` validate tier renders (owner + result) and replace options wholesale; respond route requires an `option_id` when tiers exist and flips `quote_accepted` on the tier's render. QuoteForm gained a tiers toggle with per-tier render picker (recent-renders thumbnails) + live totals; customer page shows side-by-side tier cards with per-tier accept; PDF renders per-tier blocks; `/quotes/[id]` shows tier chips + accepted tier.
+- **Lead capture**: `Lead` model + `LeadStatus`. Public `POST /api/leads` is token-gated (render or quote share token resolved server-side — client never sends IDs), IP-rate-limited (new `leads` scope: 3/min, 10/hr), honeypot-protected (fake 201, nothing stored). `LeadForm` on both public pages; `/leads` page with tel:/mailto: links, source links, and new→contacted→closed status buttons (`PATCH /api/leads/[id]`, org-scoped via `updateMany` count). Nav link added.
+- **Email (Resend)**: `services/email/{resend,templates,notify}.ts` — `sendEmail()` no-ops with a warning when `RESEND_API_KEY` unset and never throws. Wired: render-complete (both finalize paths, after the transaction), proposal-viewed (first view only, inside `after()` with the view-counter increment), new-lead (via `after()`, to org owner), and the deferred weekly cost-report email (cron TODO resolved; alert flag in subject).
+- **Projects**: `GET/POST /api/projects` (org-scoped); `/new` gained an optional project picker with inline create; `/api/jobs` validates + stores `project_id`; dashboard filters by project chips and shows project names on rows.
+- **Dashboard analytics strip**: four stat cards — renders used vs limit (reuses `getPeriodRenderCount`), proposals sent/viewed/accepted, acceptance rate, leads (+new) — all queries `.catch`-guarded, linking to `/settings`, `/proposals`, `/leads`.
+- Middleware: `/leads`, `/api/projects` protected; `/api/leads` deliberately public (POST is token-gated; PATCH enforces auth in-route).
+
+**Code touched**
+- prisma/schema.prisma (Lead, LeadStatus, QuoteOption, Quote.accepted_option_id; db push applied)
+- services/email/{resend,templates,notify}.ts, components/{BeforeAfterSlider,LeadForm}.tsx (new); services/pdf/{proposal-document.tsx,render-proposal.ts}; lib/{quote-totals,ratelimit}.ts; types/quotes.ts
+- app/api/leads/{route.ts,[id]/route.ts}, app/api/projects/route.ts (new); app/api/quotes/{route.ts,[id]/route.ts,[id]/pdf/route.ts}; app/api/proposal/[token]/{respond,pdf}/route.ts; app/api/jobs/{route.ts,[id]/route.ts}; app/api/cron/cost-report/route.ts; workers/render-job.ts
+- app/(app)/leads/{page,LeadRow}.tsx (new); app/(app)/dashboard/page.tsx (stats + project filter); app/(app)/new/{page,NewRenderClient}.tsx; app/(app)/quotes/{QuoteForm.tsx,new/page.tsx,[id]/page.tsx,[id]/QuoteDetailClient.tsx}; app/(app)/renders/[id]/RenderView.tsx; app/(app)/layout.tsx; app/share/[token]/page.tsx; app/proposal/[token]/{page,ProposalActions}.tsx; proxy.ts; .env.example; ARCHITECTURE_MAP.md; package.json (+resend)
+
+**Verification**
+- `npm run lint` — 0 errors; `npm run build` — clean (all routes incl. `/leads`, `/api/leads`, `/api/projects`).
+- Unit script (tsx): per-tier totals with 8.25% quote-level tax exact (3464.00 / 6224.38); options zod accepts 2 tiers, rejects 5 tiers and empty-line-item tiers; line-item bounds still enforced.
+- Dev smoke (unsandboxed): bogus-token lead POST → 404 with clear message; missing contact info → 400 validation message; honeypot POST → fake 201; unauth `PATCH /api/leads/[id]` → 401; `/leads` + `/api/projects` + `/dashboard` → 307 logged-out; bogus `/share` + `/proposal` tokens → 404; root 200.
+- **Needs live keys / human**: Resend sends (account + verified sender), slider drag feel on a phone, GBB accept E2E with a Pro org and real renders, watermark + render-complete email on a real render.
+
+### 2026-07-02 - Pass 18
+**Summary**
+- FABLE_BUILD_2 complete (approved plan: `~/.claude/plans/nested-questing-moler.md`). Locked decisions: @react-pdf/renderer; new public `/proposal/[token]` (render `/share` untouched); new `/proposals` manage page; corner-badge watermark.
+- **Quote model**: `Quote` + `QuoteStatus` enum (draft|sent|accepted|declined) — references `render_id` only; structured `line_items` JSON for future auto-fill; `Decimal` money columns; own `share_token` (created with the quote, TTL `QUOTE_SHARE_TTL_SECONDS` default 90d, refreshed on edit); `viewed_count`, `responded_at`. Totals always recomputed server-side in `lib/quote-totals.ts` (per-line cent rounding).
+- **APIs**: `POST /api/quotes` (plan-gated via `features.quoting` — free → 402 upsell payload; verifies render ownership + non-empty result), `PATCH /api/quotes/[id]` (edit/recompute/mark-sent; 409 once responded), `POST /api/proposal/[token]/respond` (public, idempotent accept/decline → `Quote.status` + `Render.quote_accepted` in a transaction), `GET /api/quotes/[id]/pdf` (auth, attachment) + `GET /api/proposal/[token]/pdf` (public, inline) sharing one React-PDF document.
+- **Branded PDF** (`services/pdf/`): letter one-pager — org logo/name/phone/license/address/website, brand-color rules, result image, before/after pair, line-item table, subtotal/tax/total, notes, disclaimer footer. Needed an `as ReactElement<DocumentProps>` cast for `renderToBuffer`.
+- **UI**: shared `QuoteForm` (dynamic line items, live totals), `/quotes/new?render=` (free plan sees upsell card), `/quotes/[id]` detail (status chip, copy link, PDF, mark sent; read-only after response), `/proposals` list, nav link, "Create proposal" button on RenderView. Public `/proposal/[token]`: org-branded header, estimate table, notes, Accept/Decline with confirm step + PDF link, view counter, `noindex`, custom not-found.
+- **Watermark**: `services/images/watermark.ts` — sharp SVG corner badge ("Made with HVAC Visualizer", scales with width), gated by org plan `features.watermark`, non-fatal wrapper; wired into both finalize paths (`workers/render-job.ts` poll-COMPLETED and the eager finalize in `app/api/jobs/[id]/route.ts` — job lookup moved above upload there to know the owner).
+- **Middleware**: `/proposals`, `/quotes`, `/api/quotes`, `/api/billing`, `/api/org` added to protected prefixes; `/proposal`+`/api/proposal` intentionally public (token-scoped).
+
+**Code touched**
+- prisma/schema.prisma (Quote/QuoteStatus; db push applied); types/quotes.ts, lib/quote-totals.ts, services/images/watermark.ts, services/pdf/{proposal-document.tsx,render-proposal.ts} (new)
+- app/api/quotes/{route.ts,[id]/route.ts,[id]/pdf/route.ts}, app/api/proposal/[token]/{respond,pdf}/route.ts (new)
+- app/(app)/quotes/{QuoteForm.tsx,new/page.tsx,[id]/page.tsx,[id]/QuoteDetailClient.tsx}, app/(app)/proposals/page.tsx, app/proposal/[token]/{page,ProposalActions,not-found}.tsx (new)
+- app/(app)/layout.tsx (nav), app/(app)/renders/[id]/RenderView.tsx (button), workers/render-job.ts, app/api/jobs/[id]/route.ts, proxy.ts, .env.example, ARCHITECTURE_MAP.md, package.json (+@react-pdf/renderer)
+
+**Verification**
+- `npm run lint` — 0 errors; `npm run build` — clean, all new routes compile.
+- Unit script (tsx): totals 2×$1200.50 + 1×$99.99 @ 8.25% → 2500.99/206.33/2707.32 PASS; watermark composites onto 1200×800 JPEG (output changed, format/dimensions preserved) PASS; PDF renders `%PDF-` (9.9 KB) PASS.
+- Dev-server smoke (unsandboxed — see env note): bogus `/proposal/*` page/PDF/respond → 404; `/proposals` + `/quotes/new` + `POST /api/quotes` → 307 logged-out; `/share/[token]` unaffected.
+- **Still needs live keys** (after Pass 17 manual setup): Pro-plan E2E — create proposal → PDF branding → customer Accept flips status + `quote_accepted`; watermark visually confirmed on a real free-tier render.
+
+### 2026-07-02 - Pass 17
+**Summary**
+- FABLE_BUILD_1 complete (approved plan: `~/.claude/plans/nested-questing-moler.md`). Locked decisions: pricing Free $0·5 renders / Pro $29·150 / Team $49·300+3 seats (launch-low, grandfather later); moderation via extended vision call; seats field only (no invite flow); keep `db push`.
+- **Abuse layer**: server-side signup route (`/api/auth/signup`) with Cloudflare Turnstile + disposable-email blocklist (`disposable-email-domains`), confirm-email interstitial with resend; Upstash sliding-window rate limits on `/api/jobs` + `/api/uploads` (per-user + per-IP, env-tunable, no-op with warning when unset); `POST /api/jobs` gate chain: rate limit (429) → org paused (403) → global daily cost cap (503) → plan render cap (**402** + upsell payload) → per-org daily spend ceiling with **auto-pause** (`Organization.paused_at`) → Turnstile for free plan → keyword prescreen; content moderation via vision schema **v2.1** `content_flag` (`ok|nsfw_or_abusive|off_domain`) — worker fails the job `MODERATION_BLOCKED` (new enum value) before any fal call; `PREVIEW_MODE=true` now throws when `VERCEL_ENV=production`.
+- **Billing (Stripe)**: `Organization` activated as the owner-billed plan holder (lazy creation slug `org-<user.id>`, backfills existing accounts); `PlanTier` enum + billing/branding/abuse fields on `Organization`; plan truth in `services/billing/plans.ts` (limits/ceilings/feature gates env-tunable; quoting/branding/watermark gates wired for Builds 2–3); `/api/billing/checkout` + `/api/billing/portal`; signature-verified `/api/webhooks/stripe` syncs plan/status/period/limits (period dates read from the **subscription item** — Stripe API dahlia); Settings gains a Billing card (plan, renders used/limit, upgrade buttons or portal link).
+- **Branding**: `/settings/company` (name, phone, license, address, website, brand color, logo upload → sharp 512px PNG → Blob, old blob deleted); `PATCH /api/org` (owner-only, zod-validated); `POST /api/org/logo`.
+- **UX**: `/new` renders Turnstile for free-plan users, shows an upgrade card on 402 and a slow-down message on 429; "Generate anyway" on the job page got the same CAPTCHA handling; poller shows a friendly `MODERATION_BLOCKED` message.
+
+**Code touched**
+- prisma/schema.prisma (db push applied); services/billing/{plans,stripe}.ts (new); lib/{usage,ratelimit,turnstile,moderation,disposable-email}.ts (new); lib/auth.ts; types/{analysis,jobs}.ts; types/disposable-email-domains.d.ts (new)
+- app/api/auth/signup/route.ts (new); app/api/billing/{checkout,portal}/route.ts (new); app/api/webhooks/stripe/route.ts (new); app/api/org/{route,logo/route}.ts (new); app/api/{jobs,uploads}/route.ts
+- services/vision/{prompt,schema}.ts (v2.1); workers/render-job.ts (moderation gate); services/storage/blob.ts (orgLogoPath)
+- app/(auth)/signup/page.tsx; app/(app)/new/{page,NewRenderClient}.tsx; app/(app)/jobs/[id]/{page,JobStatusPoller}.tsx; app/(app)/settings/{page,SettingsClient}.tsx; app/(app)/settings/company/{page,CompanyClient}.tsx (new)
+- .env.example; ARCHITECTURE_MAP.md; package.json (+stripe, @upstash/ratelimit, @upstash/redis, @marsidev/react-turnstile, disposable-email-domains)
+
+**Verification**
+- `npm run lint` — 0 errors (10 warnings, pre-existing `<img>`/unused-var pattern).
+- `npm run build` — clean; all new routes compile (`/api/auth/signup`, `/api/billing/*`, `/api/webhooks/stripe`, `/api/org`, `/api/org/logo`, `/settings/company`).
+- `prisma db push` — applied against Supabase (new columns defaulted/nullable; `stripe_customer_id` unique constraint safe on the empty/dormant table).
+- **Manual steps still required** (not code): ① Supabase dashboard → Auth → "Confirm email" ON; ② create Stripe products/prices (Pro $29, Team $49) + webhook endpoint (`checkout.session.completed`, `customer.subscription.*`) and set `STRIPE_*` env vars; ③ create Cloudflare Turnstile site + Upstash Redis DB and set their env vars in Vercel; ④ Stripe test-mode E2E (subscribe → plan syncs; cancel → downgrade) once keys exist.
 
 ### 2026-07-01 - Pass 16
 **Summary**
@@ -27,46 +94,4 @@
 - `npm run build` — clean; all routes compile including new `/settings`, `/share/[token]`, `/manifest.webmanifest`, icons.
 - `prisma db push` + `db:seed` **not run**: Supabase project is gone (see blocker above). End-to-end phone test pending Vercel deploy after DB restore.
 
-### 2026-05-29 - Pass 14
-**Summary**
-- Built a new Remotion marketing composition system around the full onboarding-to-render workflow using ordered product screenshots.
-- Added three production formats from a single narrative composition:
-  - HVACHook16x9 (homepage hero),
-  - HVACHook1x1 (feed ads/posts),
-  - HVACHook9x16 (reels/stories).
-- Added a HyperFrames-compatible project (marketing/hyperframes-hvac-hook) with:
-  - visual identity spec (DESIGN.md),
-  - HTML + GSAP timed composition (index.html),
-  - mirrored screenshot assets and usage docs.
-- Normalized and copied source screenshots into dedicated asset folders for both pipelines.
-
-**Code touched**
-- marketing-remotion/src/Composition.tsx
-- marketing-remotion/src/Root.tsx
-- marketing-remotion/README.md
-- marketing-remotion/public/screenshots/hvac-flow/*
-- marketing/hyperframes-hvac-hook/index.html
-- marketing/hyperframes-hvac-hook/DESIGN.md
-- marketing/hyperframes-hvac-hook/README.md
-- marketing/hyperframes-hvac-hook/assets/screenshots/*
-- RECENT_LOG.md
-- HISTORY_ARCHIVE.md
-
-**Verification**
-- `npm run lint` (in `marketing-remotion`) passed.
-- Remotion render command currently blocked in this environment by spawn EPERM (esbuild child process launch), so MP4 rendering must be executed in an environment that allows child-process spawning.
-
-### 2026-05-29 - Pass 15
-**Summary**
-- Fixed Remotion composition ID validation failure at localhost by removing underscores from composition IDs.
-- Standardized composition IDs in `Root.tsx` to match existing render/readme commands:
-  - `HVACHook16x9`
-  - `HVACHook1x1`
-  - `HVACHook9x16`
-
-**Code touched**
-- marketing-remotion/src/Root.tsx
-- RECENT_LOG.md
-
-**Verification**
-- Local `npx remotion compositions` check in this environment still hits `spawn EPERM` (same sandbox limitation), but the invalid ID source was removed from `Root.tsx`.
+*(Passes 14–15 from 2026-05-29 moved to `HISTORY_ARCHIVE.md` — Janitor protocol, >14 days old.)*

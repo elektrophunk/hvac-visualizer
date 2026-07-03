@@ -1,13 +1,17 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Turnstile } from "@marsidev/react-turnstile";
 import { generateIdempotencyKey } from "@/lib/idempotency";
 import { QUICK_PICK_BUTTONS, EQUIPMENT_DEFAULT_PROMPTS } from "@/services/equipment/descriptions";
 import type { RenderQuality } from "@/types/jobs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, Camera, CheckCircle, Zap, Star } from "lucide-react";
+import { Upload, Camera, CheckCircle, Zap, Star, Sparkles } from "lucide-react";
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
 type Step = "upload" | "prompt" | "submitting";
 
@@ -25,11 +29,18 @@ interface QuickPick {
   equipmentId: string | null;
 }
 
+export interface ProjectOption {
+  id: string;
+  name: string;
+}
+
 interface Props {
   equipment?: EquipmentOption[];
   defaultSourceUrl?: string;
   defaultPrompt?: string;
   defaultQuality?: RenderQuality;
+  plan?: string;
+  projects?: ProjectOption[];
 }
 
 function buildQuickPicks(equipment: EquipmentOption[]): QuickPick[] {
@@ -52,7 +63,7 @@ function buildQuickPicks(equipment: EquipmentOption[]): QuickPick[] {
   }));
 }
 
-export default function NewRenderClient({ equipment = [], defaultSourceUrl, defaultPrompt, defaultQuality }: Props) {
+export default function NewRenderClient({ equipment = [], defaultSourceUrl, defaultPrompt, defaultQuality, plan = "free", projects: initialProjects = [] }: Props) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -66,6 +77,18 @@ export default function NewRenderClient({ equipment = [], defaultSourceUrl, defa
   const [quality, setQuality] = useState<RenderQuality>(defaultQuality ?? "draft");
   const [activePick, setActivePick] = useState<QuickPick | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number } | null>(null);
+  const [projects, setProjects] = useState<ProjectOption[]>(initialProjects);
+  const [projectId, setProjectId] = useState<string>("");
+  const [newProjectName, setNewProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  // Remounting the widget issues a fresh token — needed after a failed submit
+  // because tokens are single-use
+  const [turnstileKey, setTurnstileKey] = useState(0);
+
+  const needsCaptcha = plan === "free" && !!TURNSTILE_SITE_KEY;
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -129,13 +152,24 @@ export default function NewRenderClient({ equipment = [], defaultSourceUrl, defa
         source_image_url: imageUrl,
         user_prompt: finalPrompt,
         equipment_id: activePick?.equipmentId ?? undefined,
+        project_id: projectId || undefined,
         quality,
+        turnstile_token: turnstileToken ?? undefined,
       }),
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      setError(data.error ?? "Failed to start render. Please try again.");
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        setLimitInfo({ used: data.used ?? 0, limit: data.limit ?? 0 });
+      } else if (res.status === 429) {
+        setError(data.error ?? "Too many requests — please wait a minute and try again.");
+      } else {
+        setError(data.error ?? "Failed to start render. Please try again.");
+      }
+      // Tokens are single-use; get a fresh one for the retry
+      setTurnstileToken(null);
+      setTurnstileKey((k) => k + 1);
       setStep("prompt");
       return;
     }
@@ -145,6 +179,28 @@ export default function NewRenderClient({ equipment = [], defaultSourceUrl, defa
   }
 
   const isRerender = !!defaultSourceUrl;
+
+  async function handleCreateProject() {
+    const name = newProjectName.trim();
+    if (!name) return;
+    setCreatingProject(true);
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.project) {
+        setProjects((prev) => [data.project, ...prev]);
+        setProjectId(data.project.id);
+        setNewProjectName("");
+        setShowNewProject(false);
+      }
+    } finally {
+      setCreatingProject(false);
+    }
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -299,6 +355,52 @@ export default function NewRenderClient({ equipment = [], defaultSourceUrl, defa
               </div>
             )}
 
+            {/* Project (optional) */}
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-2">Project (optional)</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value)}
+                  className="rounded-md border border-slate-300 px-3 py-2 text-base sm:text-sm text-slate-900 bg-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  aria-label="Project"
+                >
+                  <option value="">No project</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                {showNewProject ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
+                      placeholder="Customer / job name"
+                      className="rounded-md border border-slate-300 px-3 py-2 text-base sm:text-sm w-44 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleCreateProject}
+                      disabled={creatingProject || !newProjectName.trim()}
+                    >
+                      {creatingProject ? "Adding…" : "Add"}
+                    </Button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowNewProject(true)}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    + New project
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Quality toggle */}
             <div>
               <p className="text-xs font-medium text-slate-500 mb-2">Quality</p>
@@ -340,10 +442,40 @@ export default function NewRenderClient({ equipment = [], defaultSourceUrl, defa
         <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>
       )}
 
-      {step === "prompt" && (
+      {limitInfo && (
+        <Card className="border-blue-300 bg-blue-50">
+          <CardContent className="py-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-blue-600" />
+              <p className="text-sm font-semibold text-slate-900">
+                You&apos;ve used all {limitInfo.limit} free renders this month.
+              </p>
+            </div>
+            <p className="text-sm text-slate-600">
+              Upgrade to Pro for 150 renders a month, watermark-free results, and
+              branded proposals for your customers.
+            </p>
+            <Button asChild className="w-full sm:w-auto">
+              <Link href="/settings">See upgrade options</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {step === "prompt" && !limitInfo && needsCaptcha && (
+        <Turnstile
+          key={turnstileKey}
+          siteKey={TURNSTILE_SITE_KEY!}
+          onSuccess={setTurnstileToken}
+          onExpire={() => setTurnstileToken(null)}
+          options={{ size: "flexible" }}
+        />
+      )}
+
+      {step === "prompt" && !limitInfo && (
         <Button
           onClick={handleSubmit}
-          disabled={!userPrompt.trim()}
+          disabled={!userPrompt.trim() || (needsCaptcha && !turnstileToken)}
           className="w-full"
           size="lg"
         >

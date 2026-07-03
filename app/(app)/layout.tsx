@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings, LogOut } from "lucide-react";
+import { Settings, LogOut, FileText, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { isPreviewMode } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -39,6 +39,22 @@ export default async function AppLayout({
             className="text-sm text-slate-600 hover:text-slate-900 py-2"
           >
             History
+          </Link>
+          <Link
+            href="/proposals"
+            aria-label="Proposals"
+            className="text-slate-600 hover:text-slate-900 py-2"
+          >
+            <FileText className="w-4 h-4 sm:hidden" />
+            <span className="hidden sm:inline text-sm">Proposals</span>
+          </Link>
+          <Link
+            href="/leads"
+            aria-label="Leads"
+            className="text-slate-600 hover:text-slate-900 py-2"
+          >
+            <Users className="w-4 h-4 sm:hidden" />
+            <span className="hidden sm:inline text-sm">Leads</span>
           </Link>
           <Link
             href="/settings"

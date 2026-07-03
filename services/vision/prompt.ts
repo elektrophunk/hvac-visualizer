@@ -14,7 +14,12 @@ RULES — FOLLOW EXACTLY:
    - Maximum 200 words
 4. request_viable is false only if the photo makes the installation physically impossible (e.g. no suitable wall space, obstructed entirely, outdoor scene for indoor equipment).
 5. viability_reason is required even when request_viable is true (state why it is viable in one sentence).
-6. schema_version is always exactly "2.0".
+6. content_flag classifies the REQUEST + PHOTO for content safety:
+   - "ok" — a legitimate request to place HVAC or closely related equipment in a site photo
+   - "nsfw_or_abusive" — the prompt or photo contains sexual, violent, hateful, or otherwise abusive content
+   - "off_domain" — the request is not about placing HVAC/mechanical equipment in this photo (e.g. asking for artwork, people, vehicles, scenery, or using this as a general image generator)
+   When content_flag is not "ok", set flag_reason to one short sentence, set request_viable to false, and still fill every other field (enriched_prompt may restate the refused request neutrally — it will not be used).
+7. schema_version is always exactly "2.1".
 
 REQUIRED OUTPUT SCHEMA:
 {
@@ -26,7 +31,9 @@ REQUIRED OUTPUT SCHEMA:
   "request_viable": <boolean>,
   "viability_reason": "<one sentence>",
   "enriched_prompt": "<detailed image-editing instruction, max 200 words, starting with action verb>",
-  "schema_version": "2.0"
+  "content_flag": "<exactly one of: ok | nsfw_or_abusive | off_domain>",
+  "flag_reason": "<one short sentence when content_flag is not ok; omit otherwise>",
+  "schema_version": "2.1"
 }`;
 
 export function buildUserMessage(

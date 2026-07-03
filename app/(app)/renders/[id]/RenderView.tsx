@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Download, Share2, Star, RefreshCw } from "lucide-react";
+import { Download, Share2, Star, RefreshCw, FileText } from "lucide-react";
 import Link from "next/link";
+import BeforeAfterSlider from "@/components/BeforeAfterSlider";
 
 interface RenderData {
   id: string;
@@ -98,6 +99,14 @@ export default function RenderView({ render }: Props) {
             </Link>
           </Button>
           {hasResult && (
+            <Button asChild variant="outline" size="sm" className="flex-1 sm:flex-initial">
+              <Link href={`/quotes/new?render=${render.id}`}>
+                <FileText className="w-4 h-4 mr-1.5" />
+                Create proposal
+              </Link>
+            </Button>
+          )}
+          {hasResult && (
             <Button asChild size="sm" className="flex-1 sm:flex-initial">
               <a href={`/api/renders/${render.id}/export`} download>
                 <Download className="w-4 h-4 mr-1.5" />
@@ -110,11 +119,20 @@ export default function RenderView({ render }: Props) {
 
       <Card>
         <CardContent className="p-0 overflow-hidden rounded-lg">
-          <img
-            src={hasResult ? render.result_image_url : render.source_image_url}
-            alt={hasResult ? "Rendered HVAC installation" : "Original site photo"}
-            className="w-full object-contain bg-slate-100"
-          />
+          {hasResult ? (
+            <BeforeAfterSlider
+              beforeUrl={render.source_image_url}
+              afterUrl={render.result_image_url}
+              alt="Rendered HVAC installation"
+              className="rounded-b-none"
+            />
+          ) : (
+            <img
+              src={render.source_image_url}
+              alt="Original site photo"
+              className="w-full object-contain bg-slate-100"
+            />
+          )}
           {!hasResult && (
             <p className="px-4 py-2 text-xs text-amber-700 bg-amber-50 border-t border-amber-100">
               No render was generated for this request — Claude found no suitable placement. Showing your original photo.

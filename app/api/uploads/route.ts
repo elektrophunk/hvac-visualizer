@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { uploadBlob, sourceImagePath } from "@/services/storage/blob";
 import { httpError } from "@/lib/errors";
+import { checkRateLimit, clientIp } from "@/lib/ratelimit";
 import sharp from "sharp";
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB raw input
@@ -10,6 +11,18 @@ const MAX_DIMENSION = 2048;
 export async function POST(request: NextRequest) {
   try {
     const user = await requireUser();
+
+    const rate = await checkRateLimit("uploads", user.id, clientIp(request));
+    if (!rate.ok) {
+      return Response.json(
+        {
+          error: "Too many uploads at once. Please wait a moment and try again.",
+          code: "rate_limited",
+          retry_after_sec: rate.retryAfterSec,
+        },
+        { status: 429, headers: { "Retry-After": String(rate.retryAfterSec ?? 60) } }
+      );
+    }
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;

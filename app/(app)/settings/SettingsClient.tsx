@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -17,13 +19,52 @@ import {
 interface Props {
   email: string;
   memberSince: string;
+  plan: string;
+  planLabel: string;
+  rendersUsed: number;
+  renderLimit: number;
+  periodEnd: string | null;
+  hasStripeCustomer: boolean;
 }
 
-export default function SettingsClient({ email, memberSince }: Props) {
+export default function SettingsClient({
+  email,
+  memberSince,
+  plan,
+  planLabel,
+  rendersUsed,
+  renderLimit,
+  periodEnd,
+  hasStripeCustomer,
+}: Props) {
   const router = useRouter();
   const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [billingLoading, setBillingLoading] = useState<string | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
+
+  async function goToBilling(path: "checkout" | "portal", targetPlan?: string) {
+    setBillingLoading(targetPlan ?? "portal");
+    setBillingError(null);
+    try {
+      const res = await fetch(`/api/billing/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(targetPlan ? { plan: targetPlan } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        setBillingError(data.error ?? "Billing is unavailable right now. Please try again.");
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      setBillingError("Network error. Please try again.");
+    } finally {
+      setBillingLoading(null);
+    }
+  }
 
   async function handleDeleteData() {
     setDeleting(true);
@@ -66,6 +107,91 @@ export default function SettingsClient({ email, memberSince }: Props) {
               day: "numeric",
             })}
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Plan &amp; billing</CardTitle>
+          <CardDescription>
+            You&apos;re on the <span className="font-semibold">{planLabel}</span> plan.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600">Renders this period</span>
+              <span className="font-medium text-slate-900">
+                {rendersUsed} / {renderLimit}
+              </span>
+            </div>
+            <Progress
+              value={Math.min(100, (rendersUsed / Math.max(1, renderLimit)) * 100)}
+              className="h-2"
+            />
+            {periodEnd && (
+              <p className="text-xs text-slate-400">
+                Renews{" "}
+                {new Date(periodEnd).toLocaleDateString("en-US", {
+                  month: "long",
+                  day: "numeric",
+                })}
+              </p>
+            )}
+          </div>
+
+          {plan === "free" ? (
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                onClick={() => goToBilling("checkout", "pro")}
+                disabled={billingLoading !== null}
+                className="w-full sm:w-auto"
+              >
+                {billingLoading === "pro" ? "Opening checkout…" : "Upgrade to Pro — $29/mo"}
+              </Button>
+              <Button
+                onClick={() => goToBilling("checkout", "team")}
+                disabled={billingLoading !== null}
+                variant="outline"
+                className="w-full sm:w-auto"
+              >
+                {billingLoading === "team" ? "Opening checkout…" : "Upgrade to Team — $49/mo"}
+              </Button>
+            </div>
+          ) : (
+            hasStripeCustomer && (
+              <Button
+                onClick={() => goToBilling("portal")}
+                disabled={billingLoading !== null}
+                variant="outline"
+              >
+                {billingLoading === "portal" ? "Opening portal…" : "Manage billing"}
+              </Button>
+            )
+          )}
+          {plan === "free" && (
+            <p className="text-xs text-slate-500">
+              Pro: 150 renders/mo, no watermark, branded proposals. Team: 300
+              renders/mo, 3 seats, full company branding.
+            </p>
+          )}
+          {billingError && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{billingError}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Company profile</CardTitle>
+          <CardDescription>
+            Logo, contact details, and brand color used on proposals and share pages.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link href="/settings/company">Edit company profile</Link>
+          </Button>
         </CardContent>
       </Card>
 

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth";
+import { requireUserWithOrg } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import JobStatusPoller from "./JobStatusPoller";
 
@@ -9,7 +9,7 @@ export default async function JobStatusPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await requireUser();
+  const { user, org } = await requireUserWithOrg();
 
   const job = await prisma.renderJob.findUnique({
     where: { id },
@@ -29,6 +29,7 @@ export default async function JobStatusPage({
       sourceImageUrl={job.source_image_url}
       userPrompt={job.user_prompt}
       equipmentId={job.equipment_id}
+      plan={org.plan}
     />
   );
 }

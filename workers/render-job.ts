@@ -16,6 +16,8 @@ import {
   renderResultPath,
 } from "@/services/storage/blob";
 import { computeCostUsd, logJobEvent } from "@/services/observability/metrics";
+import { watermarkIfRequired } from "@/services/images/watermark";
+import { notifyRenderComplete } from "@/services/email/notify";
 import type { FailureReason } from "@/types/jobs";
 
 const BACKOFF_MS: Record<number, number> = { 2: 5_000, 3: 25_000 };
@@ -126,7 +128,30 @@ async function runAnalyzePhase(payload: RenderJobPayload): Promise<void> {
       { contentType: "application/json" }
     );
 
-    // ── Step 4: Viability gate ──────────────────────────────────────────────
+    // ── Step 4: Moderation gate — NSFW/abusive/off-domain requests never
+    // reach fal. Terminal failure, no retry (Claude already saw prompt+image).
+    if (analysisOutput.result.content_flag !== "ok") {
+      await prisma.renderJob.update({
+        where: { id: jobId },
+        data: {
+          status: "failed",
+          failed_at: new Date(),
+          last_failure_reason: "MODERATION_BLOCKED",
+          failure_detail:
+            analysisOutput.result.flag_reason ?? analysisOutput.result.content_flag,
+          poison_message: true,
+          analysis_json_url: analysisJsonUrl,
+          vision_latency_ms: visionLatencyMs,
+          input_tokens: analysisOutput.inputTokens,
+          output_tokens: analysisOutput.outputTokens,
+          cost_usd: claudeCostUsd,
+        },
+      });
+      logJobEvent({ jobId, userId: job.user_id, status: "moderation_blocked", attempt_count: attempt, vision_latency_ms: visionLatencyMs, cost_usd: claudeCostUsd, failure_reason: "MODERATION_BLOCKED" });
+      return;
+    }
+
+    // ── Step 5: Viability gate ──────────────────────────────────────────────
     if (!analysisOutput.result.request_viable && !job.force_generate) {
       await prisma.renderJob.update({
         where: { id: jobId },
@@ -152,7 +177,7 @@ async function runAnalyzePhase(payload: RenderJobPayload): Promise<void> {
       console.warn(`[render-job] force_generate=true for job ${jobId} with request_viable=false`);
     }
 
-    // ── Step 5: Submit to fal ───────────────────────────────────────────────
+    // ── Step 6: Submit to fal ───────────────────────────────────────────────
     let falRequestId: string;
     try {
       falRequestId = await submitGenerationJob(
@@ -284,8 +309,11 @@ async function runPollPhase(payload: RenderJobPayload): Promise<void> {
   // COMPLETED — fetch, upload, finalize
   try {
     const generationStart = Date.now();
-    const resultBuffer = await fetchGenerationResult(falRequestId);
+    let resultBuffer = await fetchGenerationResult(falRequestId);
     const generationLatencyMs = Date.now() - generationStart;
+
+    // Free-tier watermark (non-fatal; paid plans pass through unchanged)
+    resultBuffer = await watermarkIfRequired(resultBuffer, job.user_id);
 
     const { url: resultUrl } = await uploadBlob(
       renderResultPath(jobId),
@@ -297,7 +325,7 @@ async function runPollPhase(payload: RenderJobPayload): Promise<void> {
     const claudeCostUsd = computeCostUsd(job.input_tokens ?? 0, job.output_tokens ?? 0);
     const totalCostUsd = claudeCostUsd + falCostUsd();
 
-    await prisma.$transaction([
+    const [, render] = await prisma.$transaction([
       prisma.renderJob.update({
         where: { id: jobId },
         data: {
@@ -321,6 +349,8 @@ async function runPollPhase(payload: RenderJobPayload): Promise<void> {
         },
       }),
     ]);
+
+    await notifyRenderComplete(job.user_id, render.id);
 
     logJobEvent({
       jobId,

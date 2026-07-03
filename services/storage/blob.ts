@@ -45,3 +45,9 @@ export function renderResultPath(jobId: string) {
 export function equipmentAssetPath(equipmentId: string, version: string) {
   return `equipment-assets/${equipmentId}/${version}/front.png`;
 }
+
+// Timestamped so re-uploads never collide with the existing blob path;
+// the previous logo is deleted after a successful swap.
+export function orgLogoPath(orgId: string) {
+  return `org-logos/${orgId}/logo-${Date.now()}.png`;
+}

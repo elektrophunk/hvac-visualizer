@@ -59,4 +59,46 @@ Poll messages include `{ jobId, falRequestId, pollAttempt }`. Max 10 poll attemp
 
 ## Archived Log Entries
 
-*(No entries yet — archive begins empty for this project. Entries will be moved here from RECENT_LOG.md as they age out.)*
+### 2026-05-29 - Pass 15
+**Summary**
+- Fixed Remotion composition ID validation failure at localhost by removing underscores from composition IDs.
+- Standardized composition IDs in `Root.tsx` to match existing render/readme commands:
+  - `HVACHook16x9`
+  - `HVACHook1x1`
+  - `HVACHook9x16`
+
+**Code touched**
+- marketing-remotion/src/Root.tsx
+- RECENT_LOG.md
+
+**Verification**
+- Local `npx remotion compositions` check in this environment still hits `spawn EPERM` (same sandbox limitation), but the invalid ID source was removed from `Root.tsx`.
+
+### 2026-05-29 - Pass 14
+**Summary**
+- Built a new Remotion marketing composition system around the full onboarding-to-render workflow using ordered product screenshots.
+- Added three production formats from a single narrative composition:
+  - HVACHook16x9 (homepage hero),
+  - HVACHook1x1 (feed ads/posts),
+  - HVACHook9x16 (reels/stories).
+- Added a HyperFrames-compatible project (marketing/hyperframes-hvac-hook) with:
+  - visual identity spec (DESIGN.md),
+  - HTML + GSAP timed composition (index.html),
+  - mirrored screenshot assets and usage docs.
+- Normalized and copied source screenshots into dedicated asset folders for both pipelines.
+
+**Code touched**
+- marketing-remotion/src/Composition.tsx
+- marketing-remotion/src/Root.tsx
+- marketing-remotion/README.md
+- marketing-remotion/public/screenshots/hvac-flow/*
+- marketing/hyperframes-hvac-hook/index.html
+- marketing/hyperframes-hvac-hook/DESIGN.md
+- marketing/hyperframes-hvac-hook/README.md
+- marketing/hyperframes-hvac-hook/assets/screenshots/*
+- RECENT_LOG.md
+- HISTORY_ARCHIVE.md
+
+**Verification**
+- `npm run lint` (in `marketing-remotion`) passed.
+- Remotion render command currently blocked in this environment by spawn EPERM (esbuild child process launch), so MP4 rendering must be executed in an environment that allows child-process spawning.

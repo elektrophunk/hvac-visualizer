@@ -11,6 +11,8 @@ import {
 } from "@/services/generation/fal";
 import { uploadBlob, renderResultPath } from "@/services/storage/blob";
 import { computeCostUsd, logJobEvent } from "@/services/observability/metrics";
+import { watermarkIfRequired } from "@/services/images/watermark";
+import { notifyRenderComplete } from "@/services/email/notify";
 
 const ESTIMATED_WAIT_MS = 45_000;
 
@@ -28,19 +30,22 @@ async function tryCompleteAwaitingJob(jobId: string, falRequestId: string): Prom
 
   if (falStatus !== "COMPLETED") return; // Still in progress — client polls again in 5s
 
-  const resultBuffer = await fetchGenerationResult(falRequestId);
+  const job = await prisma.renderJob.findUnique({ where: { id: jobId } });
+  if (!job) return;
+
+  let resultBuffer = await fetchGenerationResult(falRequestId);
+  // Free-tier watermark (non-fatal; paid plans pass through unchanged)
+  resultBuffer = await watermarkIfRequired(resultBuffer, job.user_id);
+
   const { url: resultUrl } = await uploadBlob(renderResultPath(jobId), resultBuffer, {
     contentType: "image/jpeg",
   });
-
-  const job = await prisma.renderJob.findUnique({ where: { id: jobId } });
-  if (!job) return;
 
   const claudeCostUsd = computeCostUsd(job.input_tokens ?? 0, job.output_tokens ?? 0);
   const totalCostUsd = claudeCostUsd + falCostUsd();
 
   try {
-    await prisma.$transaction([
+    const [, render] = await prisma.$transaction([
       prisma.renderJob.update({
         where: { id: jobId },
         data: {
@@ -62,6 +67,8 @@ async function tryCompleteAwaitingJob(jobId: string, falRequestId: string): Prom
         },
       }),
     ]);
+
+    await notifyRenderComplete(job.user_id, render.id);
 
     logJobEvent({
       jobId,

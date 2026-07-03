@@ -10,15 +10,49 @@ datasource db {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
+enum PlanTier {
+  free
+  pro
+  team
+}
+
 model Organization {
   id         String    @id @default(uuid())
   name       String
   slug       String    @unique
+  owner_id   String?
+  owner      User?     @relation("OrgOwner", fields: [owner_id], references: [id])
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
 
+  // Billing (owner-billed; synced from Stripe by /api/webhooks/stripe)
+  plan                   PlanTier  @default(free)
+  plan_status            String?
+  stripe_customer_id     String?   @unique
+  stripe_subscription_id String?
+  current_period_start   DateTime?
+  current_period_end     DateTime?
+  render_limit           Int       @default(5)
+  seats                  Int       @default(1)
+
+  // Company branding (feeds quotes, share pages, watermarks in Builds 2–3)
+  logo_url       String?
+  phone          String?
+  license_number String?
+  address        String?
+  brand_color    String?
+  website        String?
+
+  // Abuse controls (daily cost circuit-breaker)
+  paused_at    DateTime?
+  pause_reason String?
+
   users    User[]
   projects Project[]
+  quotes   Quote[]
+  leads    Lead[]
+
+  @@index([owner_id])
 }
 
 model User {
@@ -32,9 +66,11 @@ model User {
   updated_at   DateTime      @updatedAt
   deleted_at   DateTime?
 
-  jobs     RenderJob[]
-  renders  Render[]
-  projects Project[]
+  jobs       RenderJob[]
+  renders    Render[]
+  projects   Project[]
+  quotes     Quote[]
+  owned_orgs Organization[] @relation("OrgOwner")
 
   @@index([supabase_uid])
   @@index([org_id])
@@ -103,6 +139,7 @@ enum FailureReason {
   FAL_API_ERROR
   STORAGE_ERROR
   TIMEOUT
+  MODERATION_BLOCKED
   UNKNOWN
 }
 
@@ -189,6 +226,114 @@ model Render {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  quotes        Quote[]
+  quote_options QuoteOption[]
+  leads         Lead[]
+
   @@index([user_id, created_at(sort: Desc)])
   @@index([share_token])
+}
+
+// ─── Quotes / Proposals ───────────────────────────────────────────────────────
+
+enum QuoteStatus {
+  draft
+  sent
+  accepted
+  declined
+}
+
+model Quote {
+  id        String @id @default(uuid())
+  render_id String
+  render    Render @relation(fields: [render_id], references: [id])
+  user_id   String
+  user      User   @relation(fields: [user_id], references: [id])
+  org_id    String
+  org       Organization @relation(fields: [org_id], references: [id])
+
+  customer_name  String
+  customer_email String?
+
+  // Structured [{description, qty, unit_price}] — future auto-fill populates this
+  line_items Json    @default("[]")
+  notes      String?
+
+  // Totals are always recomputed server-side from line_items
+  subtotal Decimal @db.Decimal(10, 2)
+  tax_rate Decimal @db.Decimal(5, 2) @default(0)
+  tax      Decimal @db.Decimal(10, 2)
+  total    Decimal @db.Decimal(10, 2)
+
+  status           QuoteStatus @default(draft)
+  share_token      String      @unique
+  share_expires_at DateTime
+  viewed_count     Int         @default(0)
+  responded_at     DateTime?
+
+  // Good/Better/Best: which tier the customer accepted (null = base estimate)
+  accepted_option_id String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  options QuoteOption[]
+  leads   Lead[]
+
+  @@index([user_id, created_at(sort: Desc)])
+  @@index([org_id])
+  @@index([share_token])
+}
+
+// Good/Better/Best tiers on a proposal. Totals computed server-side with the
+// quote-level tax_rate. A quote with no options is a plain single estimate.
+model QuoteOption {
+  id       String  @id @default(uuid())
+  quote_id String
+  quote    Quote   @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  label    String
+  render_id String?
+  render    Render? @relation(fields: [render_id], references: [id])
+
+  line_items Json    @default("[]")
+  subtotal   Decimal @db.Decimal(10, 2)
+  tax        Decimal @db.Decimal(10, 2)
+  total      Decimal @db.Decimal(10, 2)
+  sort_order Int     @default(0)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([quote_id, sort_order])
+}
+
+// ─── Leads ────────────────────────────────────────────────────────────────────
+
+enum LeadStatus {
+  new
+  contacted
+  closed
+}
+
+model Lead {
+  id     String       @id @default(uuid())
+  org_id String
+  org    Organization @relation(fields: [org_id], references: [id])
+
+  render_id String?
+  render    Render? @relation(fields: [render_id], references: [id])
+  quote_id  String?
+  quote     Quote?  @relation(fields: [quote_id], references: [id])
+
+  name    String
+  phone   String?
+  email   String?
+  message String?
+  status  LeadStatus @default(new)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([org_id, created_at(sort: Desc)])
+  @@index([org_id, status])
 }

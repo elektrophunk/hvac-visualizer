@@ -11,6 +11,7 @@ export type FailureReason =
   | "FAL_API_ERROR"
   | "STORAGE_ERROR"
   | "TIMEOUT"
+  | "MODERATION_BLOCKED"
   | "UNKNOWN";
 
 export interface JobStatusResponse {

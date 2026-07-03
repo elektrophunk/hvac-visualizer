@@ -3,6 +3,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent } from "@/components/ui/card";
+import BeforeAfterSlider from "@/components/BeforeAfterSlider";
+import LeadForm from "@/components/LeadForm";
 
 export const metadata: Metadata = {
   title: "Shared Render — HVAC Visualizer",
@@ -66,36 +68,18 @@ export default async function SharedRenderPage({
 
         <Card>
           <CardContent className="p-0 overflow-hidden rounded-lg">
-            <img
-              src={render.result_image_url}
+            <BeforeAfterSlider
+              beforeUrl={render.source_image_url}
+              afterUrl={render.result_image_url}
               alt="Proposed HVAC installation render"
-              className="w-full object-contain bg-slate-100"
             />
           </CardContent>
         </Card>
+        <p className="text-xs text-slate-400 text-center -mt-3">
+          Drag the handle to compare before and after.
+        </p>
 
-        <div className="grid grid-cols-2 gap-4">
-          <figure>
-            <figcaption className="text-xs font-medium text-slate-500 mb-1.5">
-              Before
-            </figcaption>
-            <img
-              src={render.source_image_url}
-              alt="Original site photo"
-              className="w-full rounded-md object-cover aspect-video bg-slate-100"
-            />
-          </figure>
-          <figure>
-            <figcaption className="text-xs font-medium text-slate-500 mb-1.5">
-              After
-            </figcaption>
-            <img
-              src={render.result_image_url}
-              alt="Rendered result"
-              className="w-full rounded-md object-cover aspect-video bg-slate-100"
-            />
-          </figure>
-        </div>
+        <LeadForm token={token} />
 
         <p className="text-xs text-slate-400 text-center pb-8">
           Rendered with{" "}

@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { httpError } from "@/lib/errors";
+import { sendEmail } from "@/services/email/resend";
+import { costReportEmail } from "@/services/email/templates";
 
 export async function GET(request: NextRequest) {
   if (
@@ -38,9 +40,14 @@ export async function GET(request: NextRequest) {
 
   if (report.alert) {
     console.warn("[cost-report] ALERT: avg cost exceeds threshold", report);
-    // TODO: send email via WEEKLY_COST_REPORT_EMAIL
   } else {
     console.log("[cost-report]", report);
+  }
+
+  const recipient = process.env.WEEKLY_COST_REPORT_EMAIL;
+  if (recipient) {
+    const { subject, html } = costReportEmail(report);
+    await sendEmail({ to: recipient, subject, html });
   }
 
   return Response.json(report);

@@ -2,17 +2,21 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Turnstile } from "@marsidev/react-turnstile";
 import type { JobStatusResponse } from "@/types/jobs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+
 interface Props {
   jobId: string;
   sourceImageUrl?: string;
   userPrompt?: string;
   equipmentId?: string | null;
+  plan?: string;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -29,16 +33,22 @@ const FAILURE_MESSAGES: Record<string, string> = {
   FAL_API_ERROR: "The AI image generation service had a temporary issue. Please try again.",
   STORAGE_ERROR: "Storage error. Please try again.",
   TIMEOUT: "The render timed out. Please try again.",
+  MODERATION_BLOCKED:
+    "This request isn't something we can render — the tool only places HVAC equipment in site photos.",
   UNKNOWN: "An unexpected error occurred. Please try again.",
 };
 
-export default function JobStatusPoller({ jobId, sourceImageUrl, userPrompt, equipmentId }: Props) {
+export default function JobStatusPoller({ jobId, sourceImageUrl, userPrompt, equipmentId, plan = "free" }: Props) {
   const router = useRouter();
   const [status, setStatus] = useState<JobStatusResponse | null>(null);
   const [timedOut, setTimedOut] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [generatingForceJob, setGeneratingForceJob] = useState(false);
   const [forceJobError, setForceJobError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileKey, setTurnstileKey] = useState(0);
+
+  const needsCaptcha = plan === "free" && !!TURNSTILE_SITE_KEY;
 
   const poll = useCallback(async () => {
     const res = await fetch(`/api/jobs/${jobId}`);
@@ -96,11 +106,15 @@ export default function JobStatusPoller({ jobId, sourceImageUrl, userPrompt, equ
           user_prompt: userPrompt,
           equipment_id: equipmentId ?? undefined,
           force_generate: true,
+          turnstile_token: turnstileToken ?? undefined,
         }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setForceJobError(data.error ?? "Failed to start the render. Please try again.");
+        // Tokens are single-use — remount the widget for a fresh one
+        setTurnstileToken(null);
+        setTurnstileKey((k) => k + 1);
         return;
       }
       const { jobId: newJobId } = await res.json();
@@ -162,13 +176,23 @@ export default function JobStatusPoller({ jobId, sourceImageUrl, userPrompt, equ
             </ul>
           </div>
 
+          {needsCaptcha && (
+            <Turnstile
+              key={turnstileKey}
+              siteKey={TURNSTILE_SITE_KEY!}
+              onSuccess={setTurnstileToken}
+              onExpire={() => setTurnstileToken(null)}
+              options={{ size: "flexible" }}
+            />
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3">
             <Button asChild variant="outline" className="w-full sm:w-auto">
               <Link href="/new">Start over</Link>
             </Button>
             <Button
               onClick={handleGenerateAnyway}
-              disabled={generatingForceJob}
+              disabled={generatingForceJob || (needsCaptcha && !turnstileToken)}
               variant="secondary"
               className="w-full sm:w-auto"
             >
