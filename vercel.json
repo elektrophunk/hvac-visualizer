@@ -14,7 +14,7 @@
     }
   },
   "crons": [
-    { "path": "/api/cron/watchdog", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/watchdog", "schedule": "0 6 * * *" },
     { "path": "/api/cron/cost-report", "schedule": "0 9 * * 1" }
   ]
 }
