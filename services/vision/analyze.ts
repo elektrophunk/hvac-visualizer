@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { VISION_SYSTEM_PROMPT, buildUserMessage } from "./prompt";
 import { validateAnalysis } from "./schema";
 import type { AnalysisResult } from "@/types/analysis";
+import type { EquipmentCategory } from "@/types/equipment";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -20,11 +21,12 @@ async function callClaude(
   mediaType: "image/jpeg" | "image/png" | "image/webp",
   userPrompt: string,
   equipmentDescription: string | null,
+  category: EquipmentCategory | null,
   attempt: number
 ): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
   const userText = attempt > 1
-    ? `Your previous response was not valid JSON. Output only raw JSON as specified.\n\n${buildUserMessage(userPrompt, equipmentDescription)}`
-    : buildUserMessage(userPrompt, equipmentDescription);
+    ? `Your previous response was not valid JSON. Output only raw JSON as specified.\n\n${buildUserMessage(userPrompt, equipmentDescription, category)}`
+    : buildUserMessage(userPrompt, equipmentDescription, category);
 
   const userContent: Anthropic.MessageParam["content"] = [
     {
@@ -64,7 +66,8 @@ export async function analyzeImage(
   imageBuffer: Buffer,
   mimeType: string,
   userPrompt: string,
-  equipmentDescription: string | null
+  equipmentDescription: string | null,
+  category: EquipmentCategory | null = null
 ): Promise<AnalysisOutput> {
   const start = Date.now();
   const mediaType = mimeType.startsWith("image/png")
@@ -86,6 +89,7 @@ export async function analyzeImage(
         mediaType,
         userPrompt,
         equipmentDescription,
+        category,
         attempt
       );
       totalInputTokens += inputTokens;

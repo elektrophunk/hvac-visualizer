@@ -1,6 +1,18 @@
 import { z } from "zod";
 import type { AnalysisResult } from "@/types/analysis";
 
+const EQUIPMENT_CATEGORIES = [
+  "mini_split_head",
+  "mini_split_condenser",
+  "central_air_handler",
+  "furnace",
+  "heat_pump_condenser",
+  "boiler",
+  "ductless_cassette",
+  "ventilator",
+  "other",
+] as const;
+
 export const AnalysisResultSchema = z.object({
   scene: z.object({
     description: z.string().min(1).max(600),
@@ -12,12 +24,13 @@ export const AnalysisResultSchema = z.object({
   enriched_prompt: z.string().min(10).max(1000),
   content_flag: z.enum(["ok", "nsfw_or_abusive", "off_domain"]),
   flag_reason: z.string().max(300).optional(),
-  schema_version: z.literal("2.1"),
+  detected_category: z.enum(EQUIPMENT_CATEGORIES),
+  schema_version: z.literal("2.2"),
 });
 
 const ALLOWED_KEYS = new Set([
   "scene", "request_viable", "viability_reason", "enriched_prompt",
-  "content_flag", "flag_reason", "schema_version",
+  "content_flag", "flag_reason", "detected_category", "schema_version",
 ]);
 
 export function validateAnalysis(raw: unknown): AnalysisResult {

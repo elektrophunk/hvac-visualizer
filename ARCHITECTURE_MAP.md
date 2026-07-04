@@ -94,11 +94,11 @@ rate limit (429) → org paused (403) → global daily cost cap (503) → plan r
 ### Phase A — `"analyze"` (initial queue message)
 1. Fetch source image as Buffer (for Claude base64 input)
 2. **Budget guard**: `CLAUDE_ESTIMATED_COST_USD + falCostUsd() > RENDER_BUDGET_CAP_USD` → fail immediately, no retry
-3. Claude vision: `analyzeImage(buffer, mimeType, user_prompt, equipment.prompt_description)` → `{ scene, request_viable, viability_reason, enriched_prompt, content_flag, schema_version: "2.1" }`
+3. Claude vision: `analyzeImage(buffer, mimeType, user_prompt, equipment.prompt_description, equipment.category)` → `{ scene, request_viable, viability_reason, enriched_prompt, content_flag, detected_category, schema_version: "2.2" }`. The system prompt carries an **HVAC installation rulebook** (`services/vision/placement-rules.ts`) so `enriched_prompt` obeys real-world mounting/orientation/environment physics; the selected category's rule is inlined into the user message. **Schema v2.2** (`detected_category` = Claude's equipment classification).
 4. Store analysis JSON to Vercel Blob → `analysis_json_url`
 5. **Moderation gate**: if `content_flag !== "ok"` → `status = failed`, `MODERATION_BLOCKED`, `poison_message = true`, return (no fal call, no retry)
 6. **Viability gate**: if `request_viable === false && !force_generate` → `status = completed, placement_viable = false`, return (no fal call)
-7. Submit to fal: `submitGenerationJob(source_image_url, enriched_prompt)` → `fal_request_id`
+7. **Placement constraint**: append `placementConstraintSuffix(category)` (from `equipment.category ?? detected_category`) to `enriched_prompt` — deterministic physics reinforcement (never vertical/upside-down/wrong environment) that reaches fal regardless of Claude's wording. Submit to fal: `submitGenerationJob(source_image_url, finalPrompt)` → `fal_request_id`
 8. Update job: `status = awaiting_fal_result`, persist `fal_request_id`
 9. Re-enqueue `phase: "poll"` with 30s delay
 
@@ -118,6 +118,7 @@ rate limit (429) → org paused (403) → global daily cost cap (503) → plan r
 | **Change upload/prompt UI** | `app/(app)/new/NewRenderClient.tsx` |
 | **Change job submission logic** | `app/api/jobs/route.ts` |
 | **Modify Claude prompt or schema** | `services/vision/prompt.ts`, `services/vision/schema.ts` |
+| **Change HVAC placement realism rules** | `services/vision/placement-rules.ts` (rulebook + fal constraint suffix) |
 | **Modify Claude analysis call** | `services/vision/analyze.ts` |
 | **Modify fal.ai generation** | `services/generation/fal.ts` |
 | **Change worker pipeline** | `workers/render-job.ts` |

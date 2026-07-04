@@ -18,6 +18,7 @@ import {
 import { computeCostUsd, logJobEvent } from "@/services/observability/metrics";
 import { watermarkIfRequired } from "@/services/images/watermark";
 import { notifyRenderComplete } from "@/services/email/notify";
+import { placementConstraintSuffix } from "@/services/vision/placement-rules";
 import type { FailureReason } from "@/types/jobs";
 
 const BACKOFF_MS: Record<number, number> = { 2: 5_000, 3: 25_000 };
@@ -56,7 +57,7 @@ async function runAnalyzePhase(payload: RenderJobPayload): Promise<void> {
 
   const job = await prisma.renderJob.findUnique({
     where: { id: jobId },
-    include: { equipment: { select: { prompt_description: true } } },
+    include: { equipment: { select: { prompt_description: true, category: true } } },
   });
 
   if (!job) return;
@@ -112,7 +113,8 @@ async function runAnalyzePhase(payload: RenderJobPayload): Promise<void> {
         sourceBuffer,
         mimeType,
         job.user_prompt,
-        job.equipment?.prompt_description ?? null
+        job.equipment?.prompt_description ?? null,
+        job.equipment?.category ?? null
       );
     } catch (err) {
       failureReason = "CLAUDE_JSON_INVALID";
@@ -178,11 +180,20 @@ async function runAnalyzePhase(payload: RenderJobPayload): Promise<void> {
     }
 
     // ── Step 6: Submit to fal ───────────────────────────────────────────────
+    // Reinforce the non-negotiable installation physics deterministically, so
+    // the exact category's orientation/environment rules reach fal even if
+    // Claude's enriched_prompt under-specified them. Category comes from the
+    // selected equipment, falling back to Claude's classification.
+    const placementCategory = job.equipment?.category ?? analysisOutput.result.detected_category;
+    const finalPrompt = placementCategory
+      ? analysisOutput.result.enriched_prompt + placementConstraintSuffix(placementCategory)
+      : analysisOutput.result.enriched_prompt;
+
     let falRequestId: string;
     try {
       falRequestId = await submitGenerationJob(
         job.source_image_url,
-        analysisOutput.result.enriched_prompt,
+        finalPrompt,
         inferenceSteps
       );
     } catch (err) {

@@ -1,3 +1,5 @@
+import type { EquipmentCategory } from "@/types/equipment";
+
 export interface SceneInfo {
   description: string;
   room_type: string;
@@ -13,5 +15,8 @@ export interface AnalysisResult {
   enriched_prompt: string;
   content_flag: ContentFlag;
   flag_reason?: string;
-  schema_version: "2.1";
+  // Claude's classification of the requested equipment — drives the
+  // deterministic placement constraint when no equipment_id was selected.
+  detected_category: EquipmentCategory;
+  schema_version: "2.2";
 }

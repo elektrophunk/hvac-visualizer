@@ -10,6 +10,22 @@
 
 ## Recent Major Changes
 
+### 2026-07-04 - Pass 22
+**Summary**
+- **HVAC placement realism** (approved plan: `~/.claude/plans/nested-questing-moler.md`). Fixes renders placing equipment unrealistically (reported: mini-split heads coming back vertical/upside-down). Root cause: the pipeline never told the model the equipment's installation physics, and the `category` enum wasn't even passed to Claude. fal's Flux Kontext is instruction-only (no negative-prompt field), so realism lives in the instruction text.
+- New **`services/vision/placement-rules.ts`**: `EQUIPMENT_PLACEMENT_RULES` keyed by the 9 categories — environment (indoor/outdoor/utility), mount surface, orientation, height, airflow, clearances, and explicit `forbidden` failure modes. `renderPlacementManual()` (all rules → system prompt), `placementRuleLine(cat)` (one rule → user message), `placementConstraintSuffix(cat)` (deterministic physics line → appended to the fal instruction).
+- **Two-layer enforcement**: (1) Claude sees the rulebook in `VISION_SYSTEM_PROMPT` + the selected category's rule inlined in the user message, so its `enriched_prompt` is scene-aware AND rule-compliant; it also now sets `request_viable=false` when the equipment's environment can't match the photo (outdoor unit in an indoor shot). (2) The worker appends `placementConstraintSuffix(category)` to the enriched prompt before fal as a non-negotiable backstop.
+- **Every entry path covered**: quick-picks carry `equipment_id` (→ real category); custom typed prompts get `detected_category` (Claude classifies the requested equipment), so the worker uses `equipment.category ?? detected_category` for the suffix. Analysis schema bumped **v2.1 → v2.2** (`detected_category` required).
+- Appearance (`prompt_description`) vs. physics (rulebook) stay cleanly separated — rules live in code, composed at runtime, no re-seed. `guidance_scale` noted as the next tuning knob if drift persists.
+
+**Code touched**
+- services/vision/placement-rules.ts (new); services/vision/{prompt,schema,analyze}.ts; types/analysis.ts; workers/render-job.ts; ARCHITECTURE_MAP.md
+
+**Verification**
+- `npm run lint` 0 errors; `npm run build` clean.
+- Unit (tsx): manual covers all 9 categories; every `placementConstraintSuffix` carries a forbidden-orientation line; a `schema_version:"2.2"` + `detected_category` payload validates, while `"2.1"` and missing-`detected_category` payloads are rejected (guards the bump).
+- **Needs live eyeball** (deployed): mini-split renders horizontal/high/right-side up via both quick-pick and free-typed prompt; outdoor condenser sits upright outdoors; ceiling cassette flush; outdoor-unit-on-indoor-photo trips the not-viable card.
+
 ### 2026-07-02 - Pass 19
 **Summary**
 - FABLE_BUILD_3 complete (approved plan: `~/.claude/plans/nested-questing-moler.md`). Locked decisions: `QuoteOption` table for Good/Better/Best; analytics as stat cards on `/dashboard`; dedicated `/leads` page; proposal-viewed email on **first view only**.
