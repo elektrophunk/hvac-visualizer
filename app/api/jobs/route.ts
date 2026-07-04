@@ -8,7 +8,7 @@ import { httpError } from "@/lib/errors";
 import { checkRateLimit, clientIp } from "@/lib/ratelimit";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { prescreenPrompt } from "@/lib/moderation";
-import { planConfig } from "@/services/billing/plans";
+import { planConfig, effectiveRenderLimit } from "@/services/billing/plans";
 import {
   getPeriodRenderCount,
   getOrgDailySpendUsd,
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
       // 4. Plan render cap — the primary dollar gate
       const plan = planConfig(org.plan);
-      const limit = org.render_limit || plan.renderLimit;
+      const limit = effectiveRenderLimit(org);
       const used = await getPeriodRenderCount(org);
       if (used >= limit) {
         return Response.json(

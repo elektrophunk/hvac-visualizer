@@ -17,7 +17,9 @@ Rules of thumb:
 
 ## Test-account tricks
 
-- **Flip your org to Pro/free** (quoting is Pro-gated, watermark is free-only): `npm run db:studio` → `Organization` → edit `plan` (`free`/`pro`/`team`). No Stripe needed.
+- **`DEV_UNLOCK_ALL_FEATURES=true`** (currently ON in `.env.local` and Vercel prod+preview): every account gets all features — quoting, branding, no watermark, 3000 renders/mo. Settings shows "Dev (all features unlocked)". Cost guardrails stay active (render budget cap, global daily cap, Team-level daily spend ceiling). **Delete the env var everywhere before launch** — real plan gates resume automatically.
+  - To test *gated* behavior (watermark, 402 upsell, quote gate) while developing: set it to `false` locally and restart the dev server.
+- **Flip your org to Pro/free** (for testing the real plan gates end-to-end): `npm run db:studio` → `Organization` → edit `plan` (`free`/`pro`/`team`). No Stripe needed.
 - **Stuck "confirm your email" signup**: either turn confirmation off (Supabase → Authentication → Sign In / Providers → Email → uncheck "Confirm email") or admin-confirm the user with the service-role key (`auth.admin.updateUserById(id, { email_confirm: true })`).
   - ⚠️ Re-enable "Confirm email" before opening signups to the public — it's abuse-layer step 1 (see FABLE_BUILD_1 §1.1).
 - **Reset the monthly render cap** while testing: raise `RENDER_LIMIT_FREE` locally, or flip the org to `pro`.

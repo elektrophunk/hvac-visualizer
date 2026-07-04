@@ -26,9 +26,29 @@ function envFloat(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// DEV ONLY: unlocks every plan-gated feature for all accounts while building.
+// Delete the env var before launch — real plan gates resume automatically.
+export function isDevUnlocked(): boolean {
+  return process.env.DEV_UNLOCK_ALL_FEATURES === "true";
+}
+
+// The dollar guardrails stay on even when unlocked: per-render budget cap and
+// the global daily cost cap are enforced elsewhere; the daily ceiling here
+// stays at the Team level to protect the fal/Anthropic spend during testing.
+const DEV_UNLOCKED_CONFIG = (tier: PlanTier): PlanConfig => ({
+  tier,
+  label: "Dev (all features unlocked)",
+  priceUsd: 0,
+  renderLimit: 3000,
+  seats: 99,
+  dailyCostCeilingUsd: envFloat("DAILY_COST_CEILING_TEAM_USD", 10),
+  features: { quoting: true, branding: true, watermark: false },
+});
+
 // Launch pricing (locked 2026-07-02): intentionally low to win early customers;
 // raise later with existing subscribers grandfathered via per-org render_limit.
 export function planConfig(tier: PlanTier): PlanConfig {
+  if (isDevUnlocked()) return DEV_UNLOCKED_CONFIG(tier);
   switch (tier) {
     case "pro":
       return {
@@ -64,6 +84,15 @@ export function planConfig(tier: PlanTier): PlanConfig {
 }
 
 export const PAID_PLANS: PlanTier[] = ["pro", "team"];
+
+// The enforced/displayed monthly render cap for an org. Normally the stored
+// per-org limit (webhook-synced; supports grandfathering) wins; under the dev
+// unlock the stored value is ignored so old free-tier orgs aren't capped at 5.
+export function effectiveRenderLimit(org: { plan: PlanTier; render_limit: number }): number {
+  const config = planConfig(org.plan);
+  if (isDevUnlocked()) return config.renderLimit;
+  return org.render_limit || config.renderLimit;
+}
 
 export function stripePriceIdForPlan(tier: PlanTier): string | null {
   if (tier === "pro") return process.env.STRIPE_PRICE_ID_PRO ?? null;

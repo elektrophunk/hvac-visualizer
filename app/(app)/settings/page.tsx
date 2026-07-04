@@ -1,6 +1,6 @@
 import { requireUserWithOrg } from "@/lib/auth";
 import { getPeriodRenderCount } from "@/lib/usage";
-import { planConfig } from "@/services/billing/plans";
+import { planConfig, effectiveRenderLimit } from "@/services/billing/plans";
 import SettingsClient from "./SettingsClient";
 
 export default async function SettingsPage() {
@@ -15,7 +15,7 @@ export default async function SettingsPage() {
       plan={org.plan}
       planLabel={config.label}
       rendersUsed={used}
-      renderLimit={org.render_limit || config.renderLimit}
+      renderLimit={effectiveRenderLimit(org)}
       periodEnd={org.current_period_end?.toISOString() ?? null}
       hasStripeCustomer={!!org.stripe_customer_id}
     />

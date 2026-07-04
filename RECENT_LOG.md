@@ -4,6 +4,8 @@
 - **All three FABLE builds code complete** (Passes 17–19): Build 1 abuse/billing/branding, Build 2 quoting/PDF/watermark, Build 3 growth (slider, Good/Better/Best, leads, email, projects, analytics).
 - Next: manual account setup — Stripe (test mode, prices $29/$49), Cloudflare Turnstile, Upstash Redis, **Resend** (verified sender + `RESEND_API_KEY`/`EMAIL_FROM`), Supabase "Confirm email" ON, all env vars into Vercel → full E2E (billing → render → proposal w/ tiers → customer accept → lead → emails) → deploy.
 - Schema strategy LOCKED: `prisma db push` (no tracked migrations).
+- ⚠️ **`DEV_UNLOCK_ALL_FEATURES=true` is set** (local + Vercel prod/preview, Pass 21) — all plan gates off for development. **Delete it everywhere at launch** (see TESTING.md). Cost guardrails remain active.
+- Supabase "Confirm email" is ON but its built-in mailer is unreliable — turn it OFF in the dashboard for dev (Auth → Sign In / Providers → Email), back ON at launch. Stuck signups can be admin-confirmed via the service-role key.
 - Env note: the Claude Code sandbox blocks Turbopack/PostCSS child-process spawn (0xc0000142) — run `npm run dev` outside the sandbox; `npm run build` is unaffected.
 
 ## Recent Major Changes

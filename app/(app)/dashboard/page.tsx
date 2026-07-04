@@ -1,7 +1,7 @@
 import { requireUserWithOrg } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getPeriodRenderCount } from "@/lib/usage";
-import { planConfig } from "@/services/billing/plans";
+import { planConfig, effectiveRenderLimit } from "@/services/billing/plans";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -78,7 +78,7 @@ export default async function DashboardPage({
       prisma.lead.count({ where: { org_id: org.id, status: "new" } }).catch(() => 0),
     ]);
 
-  const renderLimit = org.render_limit || planConfig(org.plan).renderLimit;
+  const renderLimit = effectiveRenderLimit(org);
   const acceptanceRate = sentCount > 0 ? Math.round((acceptedCount / sentCount) * 100) : null;
 
   return (
