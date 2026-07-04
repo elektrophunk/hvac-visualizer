@@ -5,8 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { generateIdempotencyKey } from "@/lib/idempotency";
-import { QUICK_PICK_BUTTONS, EQUIPMENT_DEFAULT_PROMPTS } from "@/services/equipment/descriptions";
+import {
+  QUICK_PICK_BUTTONS,
+  EQUIPMENT_DEFAULT_PROMPTS,
+  EQUIPMENT_GROUPS,
+  EQUIPMENT_GROUP_ORDER,
+} from "@/services/equipment/descriptions";
 import type { RenderQuality } from "@/types/jobs";
+import type { EquipmentCategory, EquipmentGroup } from "@/types/equipment";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Upload, Camera, CheckCircle, Zap, Star, Sparkles } from "lucide-react";
@@ -27,6 +33,7 @@ interface QuickPick {
   label: string;
   prompt: string;
   equipmentId: string | null;
+  group: EquipmentGroup;
 }
 
 export interface ProjectOption {
@@ -43,6 +50,10 @@ interface Props {
   projects?: ProjectOption[];
 }
 
+function groupOf(category: string): EquipmentGroup {
+  return EQUIPMENT_GROUPS[category as EquipmentCategory] ?? "Other";
+}
+
 function buildQuickPicks(equipment: EquipmentOption[]): QuickPick[] {
   if (equipment.length > 0) {
     return equipment
@@ -52,6 +63,7 @@ function buildQuickPicks(equipment: EquipmentOption[]): QuickPick[] {
         label: e.name,
         prompt: e.prompt_description,
         equipmentId: e.id,
+        group: groupOf(e.category),
       }));
   }
   // Fallback when the catalog table is empty
@@ -60,7 +72,15 @@ function buildQuickPicks(equipment: EquipmentOption[]): QuickPick[] {
     label,
     prompt: EQUIPMENT_DEFAULT_PROMPTS[category],
     equipmentId: null,
+    group: groupOf(category),
   }));
+}
+
+function groupPicks(picks: QuickPick[]): Array<{ group: EquipmentGroup; picks: QuickPick[] }> {
+  return EQUIPMENT_GROUP_ORDER.map((group) => ({
+    group,
+    picks: picks.filter((p) => p.group === group),
+  })).filter((section) => section.picks.length > 0);
 }
 
 export default function NewRenderClient({ equipment = [], defaultSourceUrl, defaultPrompt, defaultQuality, plan = "free", projects: initialProjects = [] }: Props) {
@@ -324,23 +344,30 @@ export default function NewRenderClient({ equipment = [], defaultSourceUrl, defa
             ) : (
               /* New render mode: quick picks + editable prompt */
               <div className="space-y-3">
-                <div>
-                  <p className="text-xs font-medium text-slate-500 mb-2">Quick picks</p>
-                  <div className="flex flex-wrap gap-2">
-                    {quickPicks.map((pick) => (
-                      <button
-                        key={pick.key}
-                        onClick={() => handleQuickPick(pick)}
-                        className={`px-3 py-2 rounded-full text-sm font-medium border transition-colors ${
-                          activePick?.key === pick.key
-                            ? "bg-blue-600 text-white border-blue-600"
-                            : "bg-white text-slate-700 border-slate-300 hover:border-blue-400 hover:text-blue-600"
-                        }`}
-                      >
-                        {pick.label}
-                      </button>
-                    ))}
-                  </div>
+                <div className="space-y-3">
+                  <p className="text-xs font-medium text-slate-500">Quick picks</p>
+                  {groupPicks(quickPicks).map((section) => (
+                    <div key={section.group}>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+                        {section.group}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {section.picks.map((pick) => (
+                          <button
+                            key={pick.key}
+                            onClick={() => handleQuickPick(pick)}
+                            className={`px-3 py-2 rounded-full text-sm font-medium border transition-colors ${
+                              activePick?.key === pick.key
+                                ? "bg-blue-600 text-white border-blue-600"
+                                : "bg-white text-slate-700 border-slate-300 hover:border-blue-400 hover:text-blue-600"
+                            }`}
+                          >
+                            {pick.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
                 <textarea
                   value={userPrompt}

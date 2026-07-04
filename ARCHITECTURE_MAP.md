@@ -71,7 +71,7 @@ User uploads photo → Vercel Blob (source image)
 - `PlanTier`: `free`, `pro`, `team`
 - `QuoteStatus`: `draft`, `sent`, `accepted`, `declined`
 - `LeadStatus`: `new`, `contacted`, `closed`
-- `EquipmentCategory`: `mini_split_head`, `mini_split_condenser`, `central_air_handler`, `furnace`, `heat_pump_condenser`, `boiler`, `ductless_cassette`, `ventilator`, `other`
+- `EquipmentCategory`: ~36 values grouped as Ductless / Cooling / Heating / Water Heating / Ventilation / Commercial / Infrastructure / Other (see `types/equipment.ts` + `services/equipment/descriptions.ts` for the full list + display names + `EQUIPMENT_GROUPS`). Adding a value is compile-enforced across all `Record<EquipmentCategory, …>` maps (rules, names, prompts, groups).
 
 ### Primary Tables
 - **`User`**: Linked to Supabase auth via `supabase_uid`. Owns `RenderJob[]` and `Render[]`. Always belongs to an org (lazily created on first authenticated request, slug `org-<user.id>`).
@@ -98,7 +98,7 @@ rate limit (429) → org paused (403) → global daily cost cap (503) → plan r
 4. Store analysis JSON to Vercel Blob → `analysis_json_url`
 5. **Moderation gate**: if `content_flag !== "ok"` → `status = failed`, `MODERATION_BLOCKED`, `poison_message = true`, return (no fal call, no retry)
 6. **Viability gate**: if `request_viable === false && !force_generate` → `status = completed, placement_viable = false`, return (no fal call)
-7. **Placement constraint**: append `placementConstraintSuffix(category)` (from `equipment.category ?? detected_category`) to `enriched_prompt` — deterministic physics reinforcement (never vertical/upside-down/wrong environment) that reaches fal regardless of Claude's wording. Submit to fal: `submitGenerationJob(source_image_url, finalPrompt)` → `fal_request_id`
+7. **Placement constraint**: append `placementConstraintSuffix(category)` (from `equipment.category ?? detected_category`) to `enriched_prompt` — deterministic physics reinforcement (never vertical/upside-down/wrong environment) **plus the unit's connective infrastructure** (line set, flue, gas drip leg, condensate, ductwork) via `services/vision/infrastructure-rules.ts` (`connectedInfrastructure` on each rule; code-grounded per SMACNA/IMC/IFGC). Submit to fal: `submitGenerationJob(source_image_url, finalPrompt)` → `fal_request_id`
 8. Update job: `status = awaiting_fal_result`, persist `fal_request_id`
 9. Re-enqueue `phase: "poll"` with 30s delay
 
@@ -118,7 +118,9 @@ rate limit (429) → org paused (403) → global daily cost cap (503) → plan r
 | **Change upload/prompt UI** | `app/(app)/new/NewRenderClient.tsx` |
 | **Change job submission logic** | `app/api/jobs/route.ts` |
 | **Modify Claude prompt or schema** | `services/vision/prompt.ts`, `services/vision/schema.ts` |
-| **Change HVAC placement realism rules** | `services/vision/placement-rules.ts` (rulebook + fal constraint suffix) |
+| **Change HVAC placement realism rules** | `services/vision/placement-rules.ts` (equipment rulebook + fal constraint suffix) |
+| **Change duct/piping (infrastructure) rules** | `services/vision/infrastructure-rules.ts` |
+| **Add an equipment type** | `prisma/schema.prisma` enum + `types/equipment.ts`; then TS forces entries in `placement-rules.ts`, `descriptions.ts` (`EQUIPMENT_NAMES`/`EQUIPMENT_DEFAULT_PROMPTS`/`EQUIPMENT_GROUPS`); `db push` + `db:seed`; update prompt rule #7 list |
 | **Modify Claude analysis call** | `services/vision/analyze.ts` |
 | **Modify fal.ai generation** | `services/generation/fal.ts` |
 | **Change worker pipeline** | `workers/render-job.ts` |

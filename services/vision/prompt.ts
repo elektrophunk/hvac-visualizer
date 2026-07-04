@@ -22,7 +22,16 @@ RULES — FOLLOW EXACTLY:
    - "nsfw_or_abusive" — the prompt or photo contains sexual, violent, hateful, or otherwise abusive content
    - "off_domain" — the request is not about placing HVAC/mechanical equipment in this photo (e.g. asking for artwork, people, vehicles, scenery, or using this as a general image generator)
    When content_flag is not "ok", set flag_reason to one short sentence, set request_viable to false, and still fill every other field.
-7. detected_category is your best classification of the requested equipment into exactly one of: mini_split_head | mini_split_condenser | central_air_handler | furnace | heat_pump_condenser | boiler | ductless_cassette | ventilator | other. Base it on the user's request (and equipment context if given). Use "other" only if it genuinely fits none.
+7. detected_category is your best classification of the requested equipment into exactly one of these values (grouped for reference):
+   - Ductless: mini_split_head | ductless_cassette | mini_split_condenser | ducted_mini_split | floor_mount_mini_split | ceiling_suspended_mini_split
+   - Cooling: heat_pump_condenser | central_air_handler | evaporator_coil | packaged_unit | window_ac | ptac
+   - Heating: furnace | boiler | baseboard_heater | radiator | unit_heater
+   - Water heating: gas_water_heater | tankless_water_heater
+   - Ventilation & air quality: ventilator | exhaust_fan | whole_house_humidifier | whole_house_dehumidifier | air_cleaner
+   - Commercial: rooftop_unit | vrf_outdoor | vrf_branch_box | air_handling_unit | fan_coil_unit | air_cooled_chiller | water_cooled_chiller | cooling_tower | makeup_air_unit
+   - Infrastructure: ductwork | refrigerant_lineset
+   - Fallback: other
+   Base it on the user's request (and equipment context if given). Use "other" only if it genuinely fits none.
 8. schema_version is always exactly "2.2".
 
 HVAC INSTALLATION REALISM — the enriched_prompt MUST respect the real-world installation rules for the equipment type:
@@ -40,7 +49,7 @@ REQUIRED OUTPUT SCHEMA:
   "enriched_prompt": "<detailed image-editing instruction, max 200 words, starting with action verb, obeying the installation realism rules>",
   "content_flag": "<exactly one of: ok | nsfw_or_abusive | off_domain>",
   "flag_reason": "<one short sentence when content_flag is not ok; omit otherwise>",
-  "detected_category": "<one of the equipment categories above>",
+  "detected_category": "<one of the equipment category values listed in rule 7>",
   "schema_version": "2.2"
 }`;
 

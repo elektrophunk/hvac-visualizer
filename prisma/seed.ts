@@ -1,19 +1,7 @@
 import { PrismaClient, EquipmentCategory } from "@prisma/client";
-import { EQUIPMENT_DEFAULT_PROMPTS } from "../services/equipment/descriptions";
+import { EQUIPMENT_DEFAULT_PROMPTS, EQUIPMENT_NAMES } from "../services/equipment/descriptions";
 
 const prisma = new PrismaClient();
-
-const EQUIPMENT_NAMES: Record<EquipmentCategory, string> = {
-  mini_split_head: "Mini-Split Head Unit",
-  mini_split_condenser: "Mini-Split Condenser",
-  central_air_handler: "Central Air Handler",
-  furnace: "Gas Furnace",
-  heat_pump_condenser: "Heat Pump Condenser",
-  boiler: "Wall-Hung Boiler",
-  ductless_cassette: "Ceiling Cassette",
-  ventilator: "HRV/ERV Ventilator",
-  other: "Other / Custom",
-};
 
 async function main() {
   const categories = Object.values(EquipmentCategory);

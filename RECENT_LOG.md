@@ -10,6 +10,24 @@
 
 ## Recent Major Changes
 
+### 2026-07-04 - Pass 23
+**Summary**
+- **Equipment expansion + duct/piping rules** (approved plan: `~/.claude/plans/nested-questing-moler.md`). `EquipmentCategory` grew 9 → **36** covering the realistic residential + commercial universe (grouped Ductless / Cooling / Heating / Water Heating / Ventilation / Commercial / Infrastructure). New: ducted/floor/ceiling-suspended mini-splits, evaporator coil, packaged unit, window AC, PTAC, baseboard, radiator, unit heater, gas + tankless water heaters, exhaust fan, humidifier, dehumidifier, air cleaner, RTU, VRF outdoor + branch box, AHU, fan coil, air/water-cooled chillers, cooling tower, make-up air, plus selectable `ductwork` + `refrigerant_lineset`.
+- **Code-grounded duct/piping layer** — new `services/vision/infrastructure-rules.ts`: `INFRASTRUCTURE_RULES` for ductwork (SMACNA/IMC: rigid trunk-and-branch, flex only for final connections), refrigerant line set (line-set cover, clipped 4–6 ft, sloped downhill), condensate drain (¾" PVC, ≥1/8"/ft, trapped, secondary pan — IRC M1411.3), flue/vent (PVC high-eff vs metal B-vent), gas piping (shutoff + sediment-trap drip leg — IFGC 408.4), hydronic (paired supply/return). Each `PlacementRule` gained `connectedInfrastructure[]`; the fal constraint suffix now appends the unit's visible connections (mini-split → line-set cover down the wall; furnace → flue + gas drip leg; boiler → flue + gas + hydronic; RTU → ducts through curb).
+- **Scalable manual**: `renderPlacementManual()` is now a concise one-line-per-category cheat sheet + infra summary (keeps the system prompt lean at 36 categories); the full detailed rule is injected only for the selected category and re-appended before fal. `detected_category` switched to `z.nativeEnum(EquipmentCategory)` so the vision schema can never drift from the catalog. Schema stays v2.2 (only the category domain grew).
+- **Type-enforced completeness**: `EQUIPMENT_PLACEMENT_RULES`, `EQUIPMENT_NAMES`, `EQUIPMENT_DEFAULT_PROMPTS`, `EQUIPMENT_GROUPS` are all `Record<EquipmentCategory,…>` — a missing entry fails the build. `EQUIPMENT_NAMES` centralized in descriptions.ts (seed imports it).
+- **Grouped picker**: `/new` quick-picks now render in labeled system-type sections (via `EQUIPMENT_GROUPS` + `EQUIPMENT_GROUP_ORDER`) so 35 pickable types stay scannable on mobile.
+
+**Code touched**
+- prisma/schema.prisma (enum 9→36; db push applied), prisma/seed.ts (imports centralized names; seeds 36 rows); types/equipment.ts (+EquipmentGroup)
+- services/vision/infrastructure-rules.ts (new); services/vision/{placement-rules,prompt,schema}.ts; services/equipment/descriptions.ts (names/groups/prompts/quick-picks)
+- app/(app)/new/NewRenderClient.tsx (grouped picker); ARCHITECTURE_MAP.md
+
+**Verification**
+- `npm run lint` 0 errors; `npm run build` clean (TS exhaustiveness confirms every category has rule/name/prompt/group). `prisma db push` + `db:seed` → 36 rows.
+- Unit (tsx): 36 categories; manual lists all + 6 infra; every suffix carries a forbidden line; mini-split suffix includes the line-set cover, furnace includes flue+gas; a new `detected_category` (`rooftop_unit`) validates and a bogus one is rejected.
+- **Needs live eyeball** (deployed): render new types (window AC in a window, RTU on a curb, radiator under a window, mini-split with line-set cover down the wall, high-eff furnace with PVC flue + gas drip leg); grouped picker on mobile; existing 9 types unregressed.
+
 ### 2026-07-04 - Pass 22
 **Summary**
 - **HVAC placement realism** (approved plan: `~/.claude/plans/nested-questing-moler.md`). Fixes renders placing equipment unrealistically (reported: mini-split heads coming back vertical/upside-down). Root cause: the pipeline never told the model the equipment's installation physics, and the `category` enum wasn't even passed to Claude. fal's Flux Kontext is instruction-only (no negative-prompt field), so realism lives in the instruction text.

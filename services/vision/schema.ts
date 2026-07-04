@@ -1,17 +1,6 @@
 import { z } from "zod";
+import { EquipmentCategory } from "@prisma/client";
 import type { AnalysisResult } from "@/types/analysis";
-
-const EQUIPMENT_CATEGORIES = [
-  "mini_split_head",
-  "mini_split_condenser",
-  "central_air_handler",
-  "furnace",
-  "heat_pump_condenser",
-  "boiler",
-  "ductless_cassette",
-  "ventilator",
-  "other",
-] as const;
 
 export const AnalysisResultSchema = z.object({
   scene: z.object({
@@ -24,7 +13,8 @@ export const AnalysisResultSchema = z.object({
   enriched_prompt: z.string().min(10).max(1000),
   content_flag: z.enum(["ok", "nsfw_or_abusive", "off_domain"]),
   flag_reason: z.string().max(300).optional(),
-  detected_category: z.enum(EQUIPMENT_CATEGORIES),
+  // Prisma-generated enum keeps this in sync with the catalog automatically
+  detected_category: z.nativeEnum(EquipmentCategory),
   schema_version: z.literal("2.2"),
 });
 
