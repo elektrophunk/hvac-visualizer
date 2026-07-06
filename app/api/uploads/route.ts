@@ -38,8 +38,12 @@ export async function POST(request: NextRequest) {
 
     const rawBuffer = Buffer.from(await file.arrayBuffer());
 
-    // Compress: resize to max 2048px on longest side, JPEG 85%
+    // .rotate() first: bake in EXIF orientation (phone photos are stored
+    // sideways with an orientation tag) so the stored pixels are upright —
+    // otherwise the source, and every downstream render, comes out rotated.
+    // Then compress: resize to max 2048px on longest side, JPEG 85%.
     const compressed = await sharp(rawBuffer)
+      .rotate()
       .resize(MAX_DIMENSION, MAX_DIMENSION, {
         fit: "inside",
         withoutEnlargement: true,

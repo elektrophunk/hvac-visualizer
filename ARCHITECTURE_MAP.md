@@ -7,7 +7,7 @@ This file is the master navigation and system design map for HVAC Renovation Vis
 
 ### Pipeline Summary
 ```
-User uploads photo → Vercel Blob (source image)
+User uploads photo → sharp .rotate() (bake EXIF orientation) + resize → Vercel Blob (source image)
   → POST /api/jobs → Prisma (RenderJob created) → Vercel Queue (phase: "analyze")
   → Worker Phase A: Claude Vision (scene analysis + prompt enrichment)
       → [not viable + !force_generate] → completed (placement_viable: false), viability UI
@@ -94,7 +94,7 @@ rate limit (429) → org paused (403) → global daily cost cap (503) → plan r
 ### Phase A — `"analyze"` (initial queue message)
 1. Fetch source image as Buffer (for Claude base64 input)
 2. **Budget guard**: `CLAUDE_ESTIMATED_COST_USD + falCostUsd() > RENDER_BUDGET_CAP_USD` → fail immediately, no retry
-3. Claude vision: `analyzeImage(buffer, mimeType, user_prompt, equipment.prompt_description, equipment.category)` → `{ scene, request_viable, viability_reason, enriched_prompt, content_flag, detected_category, schema_version: "2.2" }`. The system prompt carries an **HVAC installation rulebook** (`services/vision/placement-rules.ts`) so `enriched_prompt` obeys real-world mounting/orientation/environment physics; the selected category's rule is inlined into the user message. **Schema v2.2** (`detected_category` = Claude's equipment classification).
+3. Claude vision: `analyzeImage(...)` → `{ scene, request_viable, viability_reason, enriched_prompt, content_flag, detected_category, edit_intent, schema_version: "2.3" }`. `edit_intent` (`add|replace|remove`) lets a natural-language prompt replace or remove existing equipment (enriched_prompt phrases the removal; the placement suffix is skipped for remove-only). Source dimensions are read here (`sharp`), stored on the job, and mapped to the nearest fal `aspect_ratio` bucket (`services/images/aspect.ts`) so the render isn't reframed. The system prompt carries an **HVAC installation rulebook** (`services/vision/placement-rules.ts`) so `enriched_prompt` obeys real-world mounting/orientation/environment physics; the selected category's rule is inlined into the user message. **Schema v2.2** (`detected_category` = Claude's equipment classification).
 4. Store analysis JSON to Vercel Blob → `analysis_json_url`
 5. **Moderation gate**: if `content_flag !== "ok"` → `status = failed`, `MODERATION_BLOCKED`, `poison_message = true`, return (no fal call, no retry)
 6. **Viability gate**: if `request_viable === false && !force_generate` → `status = completed, placement_viable = false`, return (no fal call)
@@ -106,7 +106,7 @@ rate limit (429) → org paused (403) → global daily cost cap (503) → plan r
 1. `checkGenerationStatus(fal_request_id)` → `IN_QUEUE | IN_PROGRESS | COMPLETED | FAILED`
 2. Not done → re-enqueue poll with 30s delay, increment `pollAttempt` (max 10)
 3. FAILED → `failed` with `FAL_API_ERROR`, retry if `attempt_count < max_attempts`
-4. COMPLETED → `fetchGenerationResult()` → **free-tier watermark** (`services/images/watermark.ts`, non-fatal, gated by org plan `features.watermark`; also applied in the eager finalize in `app/api/jobs/[id]/route.ts`) → upload to Vercel Blob → update `result_url`, create `Render` record, `status = completed`
+4. COMPLETED → `fetchGenerationResult()` → **lock to source dimensions** (`resizeToSourceDims`, `fit:"fill"` — no crop, aligned before/after) → **free-tier watermark** (`services/images/watermark.ts`, non-fatal, gated by org plan `features.watermark`) → upload to Vercel Blob → update `result_url`, create `Render` record, `status = completed`. (Both finalize steps also run in the eager finalize in `app/api/jobs/[id]/route.ts`.)
 5. Poll timeout (`pollAttempt >= 10`) → `failed` with `TIMEOUT`
 
 ---

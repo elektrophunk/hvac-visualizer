@@ -10,6 +10,22 @@
 
 ## Recent Major Changes
 
+### 2026-07-05 - Pass 24
+**Summary**
+- **Render fidelity fixes** from real phone renders (approved plan: `~/.claude/plans/nested-questing-moler.md`).
+- **#1 EXIF rotation** — phone photos stored sideways because `app/api/uploads/route.ts` resized without `.rotate()` (sharp strips the orientation tag without rotating pixels). Added `.rotate()` before `.resize()` → source is baked upright; "Before" no longer sideways and fal gets an upright input.
+- **#2 No crop / preserve dimensions** — fal Kontext `aspect_ratio` is a fixed enum with no "match input"; unset, it reframed portrait photos into a default bucket. New `services/images/aspect.ts`: `nearestAspectRatio(w,h)` maps the source to the closest allowed bucket; `resizeToSourceDims(buf,w,h)` (`fit:"fill"`, non-fatal) locks the result to exact source pixels. Worker Phase A reads `sharp` metadata → stores `source_image_width_px/height_px` (existing columns) → passes `aspect_ratio` to `submitGenerationJob`; both finalize paths (worker poll + `app/api/jobs/[id]` eager) resize the result to source dims before watermark+upload. Result: zero crop, pixel-aligned before/after.
+- **#3 Replace / remove existing equipment** — analysis schema v2.2 → **v2.3** adds `edit_intent (add|replace|remove)`. Vision prompt now detects intent from the natural-language request and phrases `enriched_prompt` to remove-then-install (replace) or remove-and-restore (remove), and stresses "change only the equipment, preserve the rest." Worker skips the placement constraint suffix for remove-only. No UI change — inferred from the prompt the contractor types.
+- Note: fal's max endpoint ignores `num_inference_steps` (the draft/final toggle is cosmetic on Kontext) — left as-is, out of scope. True pixel-preservation outside the equipment (masked inpainting) deferred by decision; Kontext still regenerates the whole frame, but framing/dimensions are now exact.
+
+**Code touched**
+- app/api/uploads/route.ts; services/images/aspect.ts (new); services/generation/fal.ts; workers/render-job.ts; app/api/jobs/[id]/route.ts; services/vision/{schema,prompt}.ts; types/analysis.ts; ARCHITECTURE_MAP.md
+
+**Verification**
+- `npm run lint` 0 errors; `npm run build` clean.
+- Unit (tsx): `nearestAspectRatio` picks the closest bucket (portrait 1080×2424 → 9:21, 4032×3024 → 4:3, 1920×1080 → 16:9); a v2.3 analysis payload with `edit_intent` validates and a v2.2 one is rejected.
+- **Needs live eyeball**: portrait photo → upright "Before"; render matches source framing/dimensions (no crop); "replace the wall AC with a mini-split" removes old + installs new; "remove the radiator" clears it and restores the wall.
+
 ### 2026-07-04 - Pass 23
 **Summary**
 - **Equipment expansion + duct/piping rules** (approved plan: `~/.claude/plans/nested-questing-moler.md`). `EquipmentCategory` grew 9 → **36** covering the realistic residential + commercial universe (grouped Ductless / Cooling / Heating / Water Heating / Ventilation / Commercial / Infrastructure). New: ducted/floor/ceiling-suspended mini-splits, evaporator coil, packaged unit, window AC, PTAC, baseboard, radiator, unit heater, gas + tankless water heaters, exhaust fan, humidifier, dehumidifier, air cleaner, RTU, VRF outdoor + branch box, AHU, fan coil, air/water-cooled chillers, cooling tower, make-up air, plus selectable `ductwork` + `refrigerant_lineset`.

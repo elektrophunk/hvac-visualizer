@@ -8,6 +8,10 @@ export interface SceneInfo {
 
 export type ContentFlag = "ok" | "nsfw_or_abusive" | "off_domain";
 
+// Whether the request adds new equipment, replaces existing equipment, or
+// only removes it — inferred by Claude from the natural-language prompt.
+export type EditIntent = "add" | "replace" | "remove";
+
 export interface AnalysisResult {
   scene: SceneInfo;
   request_viable: boolean;
@@ -18,5 +22,6 @@ export interface AnalysisResult {
   // Claude's classification of the requested equipment — drives the
   // deterministic placement constraint when no equipment_id was selected.
   detected_category: EquipmentCategory;
-  schema_version: "2.2";
+  edit_intent: EditIntent;
+  schema_version: "2.3";
 }

@@ -16,9 +16,11 @@ import {
   renderResultPath,
 } from "@/services/storage/blob";
 import { computeCostUsd, logJobEvent } from "@/services/observability/metrics";
+import sharp from "sharp";
 import { watermarkIfRequired } from "@/services/images/watermark";
 import { notifyRenderComplete } from "@/services/email/notify";
 import { placementConstraintSuffix } from "@/services/vision/placement-rules";
+import { nearestAspectRatio, resizeToSourceDims } from "@/services/images/aspect";
 import type { FailureReason } from "@/types/jobs";
 
 const BACKOFF_MS: Record<number, number> = { 2: 5_000, 3: 25_000 };
@@ -105,6 +107,20 @@ async function runAnalyzePhase(payload: RenderJobPayload): Promise<void> {
     const sourceBuffer = Buffer.from(await sourceRes.arrayBuffer());
     const mimeType = sourceRes.headers.get("content-type") ?? "image/jpeg";
 
+    // Source dimensions drive the aspect ratio sent to fal and the exact-size
+    // lock on finalize, so the render is never cropped or reframed.
+    const sourceMeta = await sharp(sourceBuffer).metadata();
+    const sourceWidth = sourceMeta.width ?? null;
+    const sourceHeight = sourceMeta.height ?? null;
+    const aspectRatio =
+      sourceWidth && sourceHeight ? nearestAspectRatio(sourceWidth, sourceHeight) : undefined;
+    if (sourceWidth && sourceHeight) {
+      await prisma.renderJob.update({
+        where: { id: jobId },
+        data: { source_image_width_px: sourceWidth, source_image_height_px: sourceHeight },
+      });
+    }
+
     // ── Step 2: Claude vision ───────────────────────────────────────────────
     const visionStart = Date.now();
     let analysisOutput;
@@ -184,17 +200,20 @@ async function runAnalyzePhase(payload: RenderJobPayload): Promise<void> {
     // the exact category's orientation/environment rules reach fal even if
     // Claude's enriched_prompt under-specified them. Category comes from the
     // selected equipment, falling back to Claude's classification.
+    // A remove-only edit has no new unit to constrain; add/replace both do.
     const placementCategory = job.equipment?.category ?? analysisOutput.result.detected_category;
-    const finalPrompt = placementCategory
-      ? analysisOutput.result.enriched_prompt + placementConstraintSuffix(placementCategory)
-      : analysisOutput.result.enriched_prompt;
+    const finalPrompt =
+      placementCategory && analysisOutput.result.edit_intent !== "remove"
+        ? analysisOutput.result.enriched_prompt + placementConstraintSuffix(placementCategory)
+        : analysisOutput.result.enriched_prompt;
 
     let falRequestId: string;
     try {
       falRequestId = await submitGenerationJob(
         job.source_image_url,
         finalPrompt,
-        inferenceSteps
+        inferenceSteps,
+        { aspectRatio }
       );
     } catch (err) {
       failureReason = "FAL_API_ERROR";
@@ -322,6 +341,14 @@ async function runPollPhase(payload: RenderJobPayload): Promise<void> {
     const generationStart = Date.now();
     let resultBuffer = await fetchGenerationResult(falRequestId);
     const generationLatencyMs = Date.now() - generationStart;
+
+    // Lock the result to the exact source dimensions — no crop, and a
+    // pixel-aligned before/after. fill (not cover) never crops.
+    resultBuffer = await resizeToSourceDims(
+      resultBuffer,
+      job.source_image_width_px,
+      job.source_image_height_px
+    );
 
     // Free-tier watermark (non-fatal; paid plans pass through unchanged)
     resultBuffer = await watermarkIfRequired(resultBuffer, job.user_id);

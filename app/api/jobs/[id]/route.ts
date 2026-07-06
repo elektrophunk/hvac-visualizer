@@ -12,6 +12,7 @@ import {
 import { uploadBlob, renderResultPath } from "@/services/storage/blob";
 import { computeCostUsd, logJobEvent } from "@/services/observability/metrics";
 import { watermarkIfRequired } from "@/services/images/watermark";
+import { resizeToSourceDims } from "@/services/images/aspect";
 import { notifyRenderComplete } from "@/services/email/notify";
 
 const ESTIMATED_WAIT_MS = 45_000;
@@ -34,6 +35,12 @@ async function tryCompleteAwaitingJob(jobId: string, falRequestId: string): Prom
   if (!job) return;
 
   let resultBuffer = await fetchGenerationResult(falRequestId);
+  // Lock to exact source dimensions (no crop, aligned before/after)
+  resultBuffer = await resizeToSourceDims(
+    resultBuffer,
+    job.source_image_width_px,
+    job.source_image_height_px
+  );
   // Free-tier watermark (non-fatal; paid plans pass through unchanged)
   resultBuffer = await watermarkIfRequired(resultBuffer, job.user_id);
 

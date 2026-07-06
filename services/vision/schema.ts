@@ -15,12 +15,13 @@ export const AnalysisResultSchema = z.object({
   flag_reason: z.string().max(300).optional(),
   // Prisma-generated enum keeps this in sync with the catalog automatically
   detected_category: z.nativeEnum(EquipmentCategory),
-  schema_version: z.literal("2.2"),
+  edit_intent: z.enum(["add", "replace", "remove"]),
+  schema_version: z.literal("2.3"),
 });
 
 const ALLOWED_KEYS = new Set([
   "scene", "request_viable", "viability_reason", "enriched_prompt",
-  "content_flag", "flag_reason", "detected_category", "schema_version",
+  "content_flag", "flag_reason", "detected_category", "edit_intent", "schema_version",
 ]);
 
 export function validateAnalysis(raw: unknown): AnalysisResult {

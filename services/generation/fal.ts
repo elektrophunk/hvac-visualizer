@@ -40,7 +40,8 @@ export const FINAL_STEPS = 28;
 export async function submitGenerationJob(
   sourceImageUrl: string,
   enrichedPrompt: string,
-  numInferenceSteps = FINAL_STEPS
+  numInferenceSteps = FINAL_STEPS,
+  options: { aspectRatio?: string } = {}
 ): Promise<string> {
   configureFal();
   try {
@@ -50,6 +51,9 @@ export async function submitGenerationJob(
         prompt: enrichedPrompt,
         image_url: resolvedUrl,
         num_inference_steps: numInferenceSteps,
+        // Match the source's shape so Kontext doesn't reframe into its default
+        // 16:9 bucket; the result is then locked to exact source dims on finalize
+        ...(options.aspectRatio ? { aspect_ratio: options.aspectRatio } : {}),
       },
     });
     return result.request_id;
